@@ -323,13 +323,23 @@
         const accessButton = document.getElementById('access-button');
         const passwordError = document.getElementById('password-error');
         const appContent = document.getElementById('app-content');
-        const CORRECT_PASSWORD = "lector2025";
+        const CORRECT_PASSWORD_USER = "lector2025sjo";
+        const CORRECT_PASSWORD_ADMIN = "adminlecto2025";
+        let userRole = null; // 'admin' or 'viewer'
 
         const checkPassword = () => {
-            if (passwordInput.value === CORRECT_PASSWORD) {
+            const enteredPassword = passwordInput.value;
+            if (enteredPassword === CORRECT_PASSWORD_ADMIN) {
+                userRole = 'admin';
                 passwordOverlay.classList.add('hidden');
                 appContent.classList.remove('hidden');
                 initApp(); // Initialize the main application once password is correct
+            } else if (enteredPassword === CORRECT_PASSWORD_USER) {
+                userRole = 'viewer';
+                passwordOverlay.classList.add('hidden');
+                appContent.classList.remove('hidden');
+                initApp(); // Initialize the main application
+                disableEditingForViewer(); // Disable editing for viewer role
             } else {
                 passwordError.classList.remove('hidden');
                 passwordInput.value = ''; // Clear password on error
@@ -433,7 +443,6 @@
             scheduleModalContent.classList.add('opacity-0', 'scale-95');
             setTimeout(() => {
                 scheduleModal.classList.add('hidden');
-                // scheduleForm.reset(); // Don't reset the whole form, manage elements individually
                 massesContainer.innerHTML = ''; // Clear all mass blocks
                 celebrationInput.value = ''; // Clear daily celebration
                 exportDailyPdfModalBtn.classList.add('hidden'); // Hide the button when modal closes
@@ -483,7 +492,7 @@
                     schedules: schedules
                 };
                 const jsonString = JSON.stringify(data, null, 2);
-                const blob = new Blob([json], { type: 'application/json' });
+                const blob = new Blob([jsonString], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -519,6 +528,7 @@
                         localStorage.setItem('readers', JSON.stringify(readers));
                         localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes));
                         localStorage.setItem('schedules', JSON.stringify(schedules));
+                        applyRolePermissions(); // Apply permissions after loading data
                     } else {
                         showMessageModal("Error de Carga", "El archivo JSON no tiene el formato esperado.");
                     }
@@ -609,9 +619,14 @@
                 `;
                 readersListEl.appendChild(li);
             });
+            applyRolePermissions(); // Apply permissions after rendering readers
         };
 
         const saveReader = (id, name) => {
+            if (userRole !== 'admin') {
+                showMessageModal("Acceso Denegado", "No tienes permiso para añadir o editar lectores.");
+                return;
+            }
             if (id) {
                 const reader = readers.find(r => r.id === id);
                 if (reader) reader.name = name;
@@ -625,6 +640,10 @@
         };
 
         const deleteReader = async (id) => {
+            if (userRole !== 'admin') {
+                showMessageModal("Acceso Denegado", "No tienes permiso para eliminar lectores.");
+                return;
+            }
             const confirmDelete = await showConfirmationModal(
                 'Confirmar Eliminación',
                 '¿Estás seguro de que quieres eliminar este lector? También se eliminará de todos los horarios programados.'
@@ -669,9 +688,14 @@
                 `;
                 assignmentTypesListEl.appendChild(li);
             });
+            applyRolePermissions(); // Apply permissions after rendering assignment types
         };
 
         const saveAssignmentType = (id, name) => {
+            if (userRole !== 'admin') {
+                showMessageModal("Acceso Denegado", "No tienes permiso para añadir o editar tipos de asignación.");
+                return;
+            }
             if (id) {
                 const type = assignmentTypes.find(t => t.id === id);
                 if (type) type.name = name;
@@ -685,6 +709,10 @@
         };
 
         const deleteAssignmentType = async (id) => {
+            if (userRole !== 'admin') {
+                showMessageModal("Acceso Denegado", "No tienes permiso para eliminar tipos de asignación.");
+                return;
+            }
             const confirmDelete = await showConfirmationModal(
                 'Confirmar Eliminación',
                 '¿Estás seguro de que quieres eliminar este tipo de asignación? También se eliminará de todos los horarios programados.'
@@ -712,6 +740,18 @@
 
         // --- Schedule Form Functions ---
         const openScheduleForm = (dateString) => {
+            if (userRole !== 'admin') {
+                // For viewers, just display schedule if exists, no editing.
+                const existingDailySchedule = schedules[dateString];
+                if (existingDailySchedule && (existingDailySchedule.celebration || (existingDailySchedule.masses && existingDailySchedule.masses.length > 0))) {
+                    displayScheduleForViewer(dateString, existingDailySchedule);
+                } else {
+                    showMessageModal("Información", "No hay horario programado para este día.");
+                }
+                return;
+            }
+
+            // Admin logic for editing schedule
             scheduleModalTitle.textContent = `Horario para el ${new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`;
             scheduleDateInput.value = dateString;
             massesContainer.innerHTML = ''; // Clear previous mass blocks
@@ -720,15 +760,61 @@
             celebrationInput.value = existingDailySchedule ? (existingDailySchedule.celebration || '') : '';
 
             if (existingDailySchedule && existingDailySchedule.masses && existingDailySchedule.masses.length > 0) {
-                // Sort masses by time before rendering
                 const sortedMasses = [...existingDailySchedule.masses].sort((a, b) => a.time.localeCompare(b.time));
                 sortedMasses.forEach(mass => {
                     addMassBlock(mass);
                 });
             } else {
-                // For a new schedule, add one default mass block
                 addMassBlock();
             }
+            showScheduleModal();
+            applyRolePermissions(); // Apply permissions within the modal (only for admin, so it's always enabled)
+        };
+
+        // Function to display schedule for viewer mode
+        const displayScheduleForViewer = (dateString, dailySchedule) => {
+            scheduleModalTitle.textContent = `Horario para el ${new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`;
+            massesContainer.innerHTML = ''; // Clear previous mass blocks
+            celebrationInput.value = dailySchedule.celebration || '';
+            celebrationInput.disabled = true; // Disable editing
+
+            const sortedMasses = dailySchedule.masses ? [...dailySchedule.masses].sort((a, b) => a.time.localeCompare(b.time)) : [];
+
+            if (sortedMasses.length === 0 && !dailySchedule.celebration) {
+                massesContainer.innerHTML = '<p class="text-center text-gray-500">No hay misas programadas para este día.</p>';
+            } else {
+                sortedMasses.forEach(mass => {
+                    const massBlockDiv = document.createElement('div');
+                    massBlockDiv.classList.add('mass-block', 'relative');
+                    massBlockDiv.innerHTML = `
+                        <h4 class="text-lg font-semibold mb-3 text-gray-700">Horario de Misa: ${mass.time}</h4>
+                        ${mass.celebration ? `<p class="mb-4 text-gray-600">Celebración: ${mass.celebration}</p>` : ''}
+                        <h5 class="text-md font-semibold mb-2 text-gray-700">Asignaciones para esta Misa:</h5>
+                        <div class="assignments-per-mass-container space-y-2"></div>
+                    `;
+                    const assignmentsPerMassContainer = massBlockDiv.querySelector('.assignments-per-mass-container');
+                    const assignmentsArray = Array.isArray(mass.assignments) ? mass.assignments : [];
+                    if (assignmentsArray.length > 0) {
+                        assignmentsArray.forEach(assignment => {
+                            const type = assignmentTypes.find(t => t.id === assignment.typeId)?.name || 'N/A';
+                            const reader = readers.find(r => r.id === assignment.readerId)?.name || 'N/A';
+                            const p = document.createElement('p');
+                            p.classList.add('text-sm', 'ml-2');
+                            p.innerHTML = `<strong>${type}:</strong> ${reader}${assignment.description ? ` (${assignment.description})` : ''}`;
+                            assignmentsPerMassContainer.appendChild(p);
+                        });
+                    } else {
+                        assignmentsPerMassContainer.innerHTML = '<p class="text-sm italic text-gray-500">No hay asignaciones para esta misa.</p>';
+                    }
+                    massesContainer.appendChild(massBlockDiv);
+                });
+            }
+
+            // Hide editing buttons for viewer
+            addMassBtn.classList.add('hidden');
+            saveScheduleBtn.classList.add('hidden');
+            exportDailyPdfModalBtn.classList.remove('hidden'); // Still allow PDF export
+
             showScheduleModal();
         };
 
@@ -813,6 +899,10 @@
         };
 
         const saveSchedule = () => {
+            if (userRole !== 'admin') {
+                showMessageModal("Acceso Denegado", "No tienes permiso para guardar horarios.");
+                return;
+            }
             const dateString = scheduleDateInput.value;
             const dailyCelebration = celebrationInput.value.trim();
             const masses = [];
@@ -1148,6 +1238,7 @@
             renderReaders();
             renderAssignmentTypes();
             renderCalendar();
+            // Permissions will be applied after all rendering is done
         };
 
         // --- Reader Schedule View ---
@@ -1206,6 +1297,75 @@
             showReaderScheduleModal(readerName);
         };
 
+        // --- Role-based Permissions ---
+        const disableEditingForViewer = () => {
+            // Disable reader management form
+            readerForm.querySelector('input').disabled = true;
+            readerForm.querySelector('button[type="submit"]').disabled = true;
+            cancelEditReaderBtn.classList.add('hidden'); // Hide cancel button as no editing is possible
+
+            // Disable assignment type management form
+            assignmentTypeForm.querySelector('input').disabled = true;
+            assignmentTypeForm.querySelector('button[type="submit"]').disabled = true;
+            cancelEditAssignmentTypeBtn.classList.add('hidden'); // Hide cancel button
+
+            // Hide/disable edit/delete buttons in lists
+            document.querySelectorAll('.edit-reader-btn').forEach(btn => btn.classList.add('hidden'));
+            document.querySelectorAll('.delete-reader-btn').forEach(btn => btn.classList.add('hidden'));
+            document.querySelectorAll('.edit-assignment-type-btn').forEach(btn => btn.classList.add('hidden'));
+            document.querySelectorAll('.delete-assignment-type-btn').forEach(btn => btn.classList.add('hidden'));
+
+            // Disable JSON save/load
+            saveJsonBtn.disabled = true;
+            saveJsonBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            loadJsonBtn.disabled = true;
+            loadJsonBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            // Hide editing buttons within the schedule modal (handled by openScheduleForm for viewers)
+            // Ensure any direct access to modal elements are disabled
+            const scheduleModalElements = [
+                celebrationInput,
+                addMassBtn,
+                saveScheduleBtn
+            ];
+            scheduleModalElements.forEach(el => {
+                if (el) {
+                    el.disabled = true;
+                    el.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+            });
+            // Specific handling for dynamic elements inside the modal:
+            // These will be recreated when modal opens, so their state will be handled in displayScheduleForViewer
+            // or by checking userRole during addMassBlock/addAssignmentRow.
+        };
+
+        const applyRolePermissions = () => {
+            if (userRole === 'viewer') {
+                disableEditingForViewer();
+            } else {
+                // Ensure all elements are enabled for admin
+                document.querySelectorAll('input, select, button').forEach(el => {
+                    el.disabled = false;
+                    el.classList.remove('opacity-50', 'cursor-not-allowed');
+                });
+
+                // Show specific buttons that might be hidden by default or viewer mode
+                readerForm.querySelector('button[type="submit"]').classList.remove('hidden');
+                assignmentTypeForm.querySelector('button[type="submit"]').classList.remove('hidden');
+                addMassBtn.classList.remove('hidden');
+                saveScheduleBtn.classList.remove('hidden');
+                exportDailyPdfModalBtn.classList.remove('hidden'); // Keep visible for all
+                saveJsonBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                loadJsonBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+
+                // Re-show edit/delete buttons in lists
+                document.querySelectorAll('.edit-reader-btn').forEach(btn => btn.classList.remove('hidden'));
+                document.querySelectorAll('.delete-reader-btn').forEach(btn => btn.classList.remove('hidden'));
+                document.querySelectorAll('.edit-assignment-type-btn').forEach(btn => btn.classList.remove('hidden'));
+                document.querySelectorAll('.delete-assignment-type-btn').forEach(btn => btn.classList.remove('hidden'));
+            }
+        };
 
         // --- Main Application Initialization ---
         const initApp = () => {
@@ -1298,6 +1458,7 @@
             localStorage.setItem('schedules', JSON.stringify(schedules));
 
             renderAllData(); // Initial render of all components
+            applyRolePermissions(); // Apply permissions immediately after rendering initial data
 
             closeMessageModalBtn.addEventListener('click', hideMessageModal);
             closeScheduleModalBtn.addEventListener('click', hideScheduleModal);
@@ -1346,6 +1507,10 @@
 
                 if(e.target.closest('.edit-reader-btn')) {
                     const btn = e.target.closest('.edit-reader-btn');
+                    if (userRole !== 'admin') {
+                        showMessageModal("Acceso Denegado", "No tienes permiso para editar lectores.");
+                        return;
+                    }
                     const reader = readers.find(r => r.id === btn.dataset.id);
                     if(reader) {
                         readerIdInput.value = reader.id;
@@ -1384,6 +1549,10 @@
             assignmentTypesListEl.addEventListener('click', async (e) => {
                 if(e.target.closest('.edit-assignment-type-btn')) {
                     const btn = e.target.closest('.edit-assignment-type-btn');
+                    if (userRole !== 'admin') {
+                        showMessageModal("Acceso Denegado", "No tienes permiso para editar tipos de asignación.");
+                        return;
+                    }
                     const type = assignmentTypes.find(t => t.id === btn.dataset.id);
                     if(type) {
                         assignmentTypeIdInput.value = type.id;
