@@ -315,7 +315,11 @@
         </div>
     </footer>
 
-    <script>
+    <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
     document.addEventListener('DOMContentLoaded', () => {
         // --- Password Protection Logic ---
         const passwordOverlay = document.getElementById('password-overlay');
@@ -360,6 +364,14 @@
         let readers;
         let assignmentTypes;
         let schedules; // Key-value pair: { "YYYY-MM-DD": { celebration: "", masses: [{time, celebration, assignments}, ...] } }
+
+        // Firestore instances and references
+        let db;
+        let auth;
+        let appId;
+        let readersCollectionRef;
+        let assignmentTypesCollectionRef;
+        let schedulesCollectionRef;
 
         // DOM References (these will be assigned within initApp)
         let calendarEl, currentMonthYearEl, prevMonthBtn, nextMonthBtn, readerForm, readerNameInput, readerIdInput,
@@ -483,7 +495,7 @@
             setTimeout(() => weekSelectionModal.classList.add('hidden'), 300);
         };
 
-        // --- Local JSON Save/Load Functions ---
+        // --- Local JSON Save/Load Functions (now interacts with Firestore for loading/saving) ---
         const saveDataAsJson = () => {
             try {
                 const data = {
@@ -508,27 +520,60 @@
             }
         };
 
-        const loadDataFromJson = (event) => {
+        const loadDataFromJson = async (event) => {
             const file = event.target.files[0];
             if (!file) {
                 return;
             }
 
             const reader = new FileReader();
-            reader.onload = (e) => {
+            reader.onload = async (e) => {
                 try {
                     const loadedData = JSON.parse(e.target.result);
                     if (loadedData.readers && loadedData.assignmentTypes && loadedData.schedules) {
-                        readers = loadedData.readers;
-                        assignmentTypes = loadedData.assignmentTypes;
-                        schedules = loadedData.schedules;
-                        renderAllData();
-                        showMessageModal("Éxito", "Datos cargados correctamente desde el archivo JSON.");
-                        // Save loaded data to local storage to persist across reloads
-                        localStorage.setItem('readers', JSON.stringify(readers));
-                        localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes));
-                        localStorage.setItem('schedules', JSON.stringify(schedules));
-                        applyRolePermissions(); // Apply permissions after loading data
+                        // Clear existing data in Firestore before loading new data
+                        // This is a destructive operation, confirm with user
+                        const confirmLoad = await showConfirmationModal(
+                            'Confirmar Carga de Datos',
+                            'Cargar este archivo sobrescribirá todos los datos actuales en la base de datos. ¿Deseas continuar?'
+                        );
+                        if (!confirmLoad) {
+                            showMessageModal("Carga Cancelada", "La carga de datos ha sido cancelada.");
+                            return;
+                        }
+
+                        // Delete existing readers
+                        const currentReadersSnapshot = await readersCollectionRef.get(); // Using get() to fetch current state
+                        for (const docSnapshot of currentReadersSnapshot.docs) {
+                            await deleteDoc(doc(readersCollectionRef, docSnapshot.id));
+                        }
+                        // Add new readers
+                        for (const readerData of loadedData.readers) {
+                            await setDoc(doc(readersCollectionRef, readerData.id || Date.now().toString()), readerData);
+                        }
+
+                        // Delete existing assignment types
+                        const currentAssignmentTypesSnapshot = await assignmentTypesCollectionRef.get();
+                        for (const docSnapshot of currentAssignmentTypesSnapshot.docs) {
+                            await deleteDoc(doc(assignmentTypesCollectionRef, docSnapshot.id));
+                        }
+                        // Add new assignment types
+                        for (const typeData of loadedData.assignmentTypes) {
+                            await setDoc(doc(assignmentTypesCollectionRef, typeData.id || Date.now().toString()), typeData);
+                        }
+
+                        // Delete existing schedules
+                        const currentSchedulesSnapshot = await schedulesCollectionRef.get();
+                        for (const docSnapshot of currentSchedulesSnapshot.docs) {
+                            await deleteDoc(doc(schedulesCollectionRef, docSnapshot.id));
+                        }
+                        // Add new schedules (doc.id is the date string)
+                        for (const dateString in loadedData.schedules) {
+                            await setDoc(doc(schedulesCollectionRef, dateString), loadedData.schedules[dateString]);
+                        }
+
+                        showMessageModal("Éxito", "Datos cargados correctamente desde el archivo JSON y actualizados en la base de datos.");
+                        // The onSnapshot listeners will automatically re-render the UI
                     } else {
                         showMessageModal("Error de Carga", "El archivo JSON no tiene el formato esperado.");
                     }
@@ -622,21 +667,23 @@
             applyRolePermissions(); // Apply permissions after rendering readers
         };
 
-        const saveReader = (id, name) => {
+        const saveReader = async (id, name) => {
             if (userRole !== 'admin') {
                 showMessageModal("Acceso Denegado", "No tienes permiso para añadir o editar lectores.");
                 return;
             }
-            if (id) {
-                const reader = readers.find(r => r.id === id);
-                if (reader) reader.name = name;
-            } else {
-                readers.push({ id: Date.now().toString(), name });
+            try {
+                if (id) {
+                    await setDoc(doc(readersCollectionRef, id), { name: name });
+                } else {
+                    await addDoc(readersCollectionRef, { name: name });
+                }
+                // No need to manually update `readers` array or call renderReaders(), onSnapshot will handle it.
+                showMessageModal("Éxito", `Lector ${id ? 'actualizado' : 'añadido'} correctamente.`);
+            } catch (error) {
+                console.error("Error saving reader:", error);
+                showMessageModal("Error", `No se pudo guardar el lector: ${error.message}`);
             }
-            localStorage.setItem('readers', JSON.stringify(readers)); // Save to local storage
-            renderReaders();
-            renderCalendar();
-            showMessageModal("Éxito", `Lector ${id ? 'actualizado' : 'añadido'} correctamente.`);
         };
 
         const deleteReader = async (id) => {
@@ -650,23 +697,32 @@
             );
             if (!confirmDelete) return;
 
-            readers = readers.filter(r => r.id !== id);
-            // Update schedules to remove reader from assignments
-            Object.keys(schedules).forEach(date => {
-                if(schedules[date] && schedules[date].masses) {
-                    schedules[date].masses.forEach(mass => {
-                        if(mass.assignments) {
-                            mass.assignments = mass.assignments.filter(a => a.readerId !== id);
-                        }
-                    });
-                }
-            });
+            try {
+                await deleteDoc(doc(readersCollectionRef, id));
+                // Update schedules to remove reader from assignments (this should be done as a batch write or a separate Cloud Function if many schedules)
+                // For now, we'll manually iterate through schedules and update.
+                const scheduleUpdates = [];
+                Object.keys(schedules).forEach(date => {
+                    if(schedules[date] && schedules[date].masses) {
+                        const updatedMasses = schedules[date].masses.map(mass => {
+                            if(mass.assignments) {
+                                return {
+                                    ...mass,
+                                    assignments: mass.assignments.filter(a => a.readerId !== id)
+                                };
+                            }
+                            return mass;
+                        });
+                        scheduleUpdates.push(setDoc(doc(schedulesCollectionRef, date), { ...schedules[date], masses: updatedMasses }));
+                    }
+                });
+                await Promise.all(scheduleUpdates);
 
-            localStorage.setItem('readers', JSON.stringify(readers)); // Save to local storage
-            localStorage.setItem('schedules', JSON.stringify(schedules)); // Save schedules changes
-            renderReaders();
-            renderCalendar();
-            showMessageModal("Éxito", "Lector eliminado.");
+                showMessageModal("Éxito", "Lector eliminado.");
+            } catch (error) {
+                console.error("Error deleting reader:", error);
+                showMessageModal("Error", `No se pudo eliminar el lector: ${error.message}`);
+            }
         };
 
         // --- Assignment Type Management ---
@@ -691,21 +747,23 @@
             applyRolePermissions(); // Apply permissions after rendering assignment types
         };
 
-        const saveAssignmentType = (id, name) => {
+        const saveAssignmentType = async (id, name) => {
             if (userRole !== 'admin') {
                 showMessageModal("Acceso Denegado", "No tienes permiso para añadir o editar tipos de asignación.");
                 return;
             }
-            if (id) {
-                const type = assignmentTypes.find(t => t.id === id);
-                if (type) type.name = name;
-            } else {
-                assignmentTypes.push({ id: Date.now().toString(), name });
+            try {
+                if (id) {
+                    await setDoc(doc(assignmentTypesCollectionRef, id), { name: name });
+                } else {
+                    await addDoc(assignmentTypesCollectionRef, { name: name });
+                }
+                // No need to manually update `assignmentTypes` array or call renderAssignmentTypes(), onSnapshot will handle it.
+                showMessageModal("Éxito", `Tipo de asignación ${id ? 'actualizado' : 'añadido'} correctamente.`);
+            } catch (error) {
+                console.error("Error saving assignment type:", error);
+                showMessageModal("Error", `No se pudo guardar el tipo de asignación: ${error.message}`);
             }
-            localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes)); // Save to local storage
-            renderAssignmentTypes();
-            renderCalendar();
-            showMessageModal("Éxito", `Tipo de asignación ${id ? 'actualizado' : 'añadido'} correctamente.`);
         };
 
         const deleteAssignmentType = async (id) => {
@@ -719,23 +777,31 @@
             );
             if (!confirmDelete) return;
 
-            assignmentTypes = assignmentTypes.filter(t => t.id !== id);
-            // Update schedules to remove type from assignments
-            Object.keys(schedules).forEach(date => {
-                if(schedules[date] && schedules[date].masses) {
-                    schedules[date].masses.forEach(mass => {
-                        if(mass.assignments) {
-                            mass.assignments = mass.assignments.filter(a => a.typeId !== id);
-                        }
-                    });
-                }
-            });
+            try {
+                await deleteDoc(doc(assignmentTypesCollectionRef, id));
+                // Update schedules to remove type from assignments
+                const scheduleUpdates = [];
+                Object.keys(schedules).forEach(date => {
+                    if(schedules[date] && schedules[date].masses) {
+                        const updatedMasses = schedules[date].masses.map(mass => {
+                            if(mass.assignments) {
+                                return {
+                                    ...mass,
+                                    assignments: mass.assignments.filter(a => a.typeId !== id)
+                                };
+                            }
+                            return mass;
+                        });
+                        scheduleUpdates.push(setDoc(doc(schedulesCollectionRef, date), { ...schedules[date], masses: updatedMasses }));
+                    }
+                });
+                await Promise.all(scheduleUpdates);
 
-            localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes)); // Save to local storage
-            localStorage.setItem('schedules', JSON.stringify(schedules)); // Save schedules changes
-            renderAssignmentTypes();
-            renderCalendar();
-            showMessageModal("Éxito", "Tipo de asignación eliminado.");
+                showMessageModal("Éxito", "Tipo de asignación eliminado.");
+            } catch (error) {
+                console.error("Error deleting assignment type:", error);
+                showMessageModal("Error", `No se pudo eliminar el tipo de asignación: ${error.message}`);
+            }
         };
 
         // --- Schedule Form Functions ---
@@ -898,7 +964,7 @@
             row.querySelector('.delete-assignment-row').addEventListener('click', () => row.remove());
         };
 
-        const saveSchedule = () => {
+        const saveSchedule = async () => {
             if (userRole !== 'admin') {
                 showMessageModal("Acceso Denegado", "No tienes permiso para guardar horarios.");
                 return;
@@ -926,18 +992,21 @@
                 }
             });
 
-            if (masses.length === 0 && !dailyCelebration) {
-                delete schedules[dateString]; // If no masses and no daily celebration, delete the whole day's schedule
-            } else {
-                // Sort masses by time before saving
-                masses.sort((a, b) => a.time.localeCompare(b.time));
-                schedules[dateString] = { celebration: dailyCelebration, masses: masses };
+            try {
+                if (masses.length === 0 && !dailyCelebration) {
+                    await deleteDoc(doc(schedulesCollectionRef, dateString));
+                } else {
+                    // Sort masses by time before saving
+                    masses.sort((a, b) => a.time.localeCompare(b.time));
+                    await setDoc(doc(schedulesCollectionRef, dateString), { celebration: dailyCelebration, masses: masses });
+                }
+                // onSnapshot will handle UI re-rendering
+                hideScheduleModal(); // Hide the modal on success
+                showMessageModal("Éxito", "Horario guardado correctamente.");
+            } catch (error) {
+                console.error("Error saving schedule:", error);
+                showMessageModal("Error", `No se pudo guardar el horario: ${error.message}`);
             }
-
-            localStorage.setItem('schedules', JSON.stringify(schedules)); // Save to local storage
-            renderCalendar();
-            hideScheduleModal(); // Hide the modal on success
-            showMessageModal("Éxito", "Horario guardado correctamente.");
         };
 
         // --- PDF Export Functions ---
@@ -1368,7 +1437,7 @@
         };
 
         // --- Main Application Initialization ---
-        const initApp = () => {
+        const initApp = async () => {
             // Assign DOM References
             currentMonth = new Date().getMonth();
             currentYear = new Date().getFullYear();
@@ -1427,39 +1496,72 @@
             readerScheduleDetails = document.getElementById('reader-schedule-details');
             closeReaderScheduleModalBtn = document.getElementById('close-reader-schedule-modal');
 
-            // Load initial data from local storage if any, or set defaults
-            const storedReaders = localStorage.getItem('readers');
-            if (storedReaders) {
-                readers = JSON.parse(storedReaders);
-            }
+            // Firebase Initialization
+            const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
 
-            const storedAssignmentTypes = localStorage.getItem('assignmentTypes');
-            if (storedAssignmentTypes) {
-                assignmentTypes = JSON.parse(storedAssignmentTypes);
+            // Sign in anonymously or with custom token
+            if (typeof __initial_auth_token !== 'undefined') {
+                await signInWithCustomToken(auth, __initial_auth_token);
             } else {
-                // Default assignment types if none are stored
-                assignmentTypes = [
-                    { id: 'default-1', name: 'Monición' },
-                    { id: 'default-2', name: 'Primera Lectura' },
-                    { id: 'default-3', name: 'Salmo' },
-                    { id: 'default-4', name: 'Segunda Lectura' },
-                    { id: 'default-5', name: 'Oración de los Fieles' }
-                ];
+                await signInAnonymously(auth);
             }
+            // const userId = auth.currentUser?.uid || 'anonymous'; // Not directly used for public collections
 
-            const storedSchedules = localStorage.getItem('schedules');
-            if (storedSchedules) {
-                schedules = JSON.parse(storedSchedules);
-            }
+            appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-            // Save initial defaults/loaded data to local storage to make sure it's consistent
-            localStorage.setItem('readers', JSON.stringify(readers));
-            localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes));
-            localStorage.setItem('schedules', JSON.stringify(schedules));
+            // Firestore references for collections
+            readersCollectionRef = collection(db, `artifacts/${appId}/public/data/readers`);
+            assignmentTypesCollectionRef = collection(db, `artifacts/${appId}/public/data/assignmentTypes`);
+            schedulesCollectionRef = collection(db, `artifacts/${appId}/public/data/schedules`);
 
-            renderAllData(); // Initial render of all components
-            applyRolePermissions(); // Apply permissions immediately after rendering initial data
 
+            // Listen for real-time updates for readers
+            onSnapshot(readersCollectionRef, (snapshot) => {
+                readers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderReaders();
+                renderCalendar(); // Re-render calendar as reader names might be displayed
+            }, (error) => {
+                console.error("Error fetching readers:", error);
+                showMessageModal("Error", "No se pudieron cargar los lectores.");
+            });
+
+            // Listen for real-time updates for assignment types
+            onSnapshot(assignmentTypesCollectionRef, (snapshot) => {
+                assignmentTypes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // If no assignment types and user is admin, add defaults.
+                if (assignmentTypes.length === 0 && userRole === 'admin') {
+                    const defaultTypes = [
+                        { name: 'Monición' },
+                        { name: 'Primera Lectura' },
+                        { name: 'Salmo' },
+                        { name: 'Segunda Lectura' },
+                        { name: 'Oración de los Fieles' }
+                    ];
+                    defaultTypes.forEach(type => addDoc(assignmentTypesCollectionRef, type).catch(e => console.error("Error adding default type:", e)));
+                }
+                renderAssignmentTypes();
+                renderCalendar(); // Re-render calendar as assignment types might be displayed
+            }, (error) => {
+                console.error("Error fetching assignment types:", error);
+                showMessageModal("Error", "No se pudieron cargar los tipos de asignación.");
+            });
+
+            // Listen for real-time updates for schedules
+            onSnapshot(schedulesCollectionRef, (snapshot) => {
+                schedules = {};
+                snapshot.docs.forEach(doc => {
+                    schedules[doc.id] = doc.data(); // doc.id will be the date string
+                });
+                renderCalendar();
+            }, (error) => {
+                console.error("Error fetching schedules:", error);
+                showMessageModal("Error", "No se pudieron cargar los horarios.");
+            });
+
+            // Event Listeners
             closeMessageModalBtn.addEventListener('click', hideMessageModal);
             closeScheduleModalBtn.addEventListener('click', hideScheduleModal);
             closeWeekSelectionModalBtn.addEventListener('click', hideWeekSelectionModal);
@@ -1601,9 +1703,6 @@
             loadJsonBtn.addEventListener('click', () => loadJsonInput.click()); // Trigger hidden file input
             loadJsonInput.addEventListener('change', loadDataFromJson);
         };
-
-        // Initial check for password
-        // The app will only fully initialize after the correct password is entered.
     });
     </script>
 </body>
