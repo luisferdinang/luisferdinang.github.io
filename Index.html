@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cronograma de Lectores</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- jsPDF and jsPDF-AutoTable for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/jspdf-autotable@3.5.25/dist/jspdf.plugin.autotable.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+        .calendar-day {
+            min-height: 100px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Ensure content doesn't overflow day box */
+        }
+        .calendar-day:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .calendar-day.current-day {
+            border: 2px solid #3b82f6; /* Blue border for current day */
+        }
+        .calendar-day.has-schedule {
+            background-color: #e0f2fe; /* Light blue if it has a schedule */
+        }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .form-input, .form-textarea, .form-select {
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            width: 100%;
+            font-size: 1rem;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+        .form-input:focus, .form-textarea:focus, .form-select:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+            outline: none;
+        }
+        .btn-primary {
+            background-color: #3b82f6;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            transition: background-color 0.2s ease-in-out;
+            font-weight: 500;
+        }
+        .btn-primary:hover {
+            background-color: #2563eb;
+        }
+        .btn-secondary {
+            background-color: #6b7280;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            transition: background-color 0.2s ease-in-out;
+            font-weight: 500;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563;
+        }
+        .btn-danger {
+            background-color: #ef4444;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .btn-danger:hover {
+            background-color: #dc2626;
+        }
+        .bg-gradient-blue {
+            background-image: linear-gradient(to right, #60a5fa, #3b82f6);
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .mass-block {
+            border: 1px solid #e5e7eb;
+            background-color: #f9fafb;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        /* Custom styles for modal content scrolling */
+        #schedule-modal-content, #reader-schedule-modal-content {
+            max-height: 90vh; /* Set a maximum height for the modal content */
+            overflow-y: auto; /* Enable vertical scrolling */
+            display: flex;
+            flex-direction: column;
+        }
+        #schedule-modal-content > *:not(:last-child), #reader-schedule-modal-content > *:not(:last-child) {
+            flex-shrink: 0; /* Prevent header/celebration from shrinking */
+        }
+        #schedule-modal-content .flex.flex-col.sm\\:flex-row.justify-end.gap-3.mt-6,
+        #reader-schedule-modal-content .flex.justify-end.gap-3.mt-6 {
+            margin-top: auto; /* Push buttons to the bottom */
+            padding-top: 1rem; /* Add some padding above buttons */
+            background-color: white; /* Ensure buttons have a clear background when scrolling */
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
+            border-top: 1px solid #e5e7eb; /* Optional: subtle separator */
+        }
+
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+    <header class="bg-gradient-blue text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-3xl font-bold">Cronograma de Lectores</h1>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-4 sm:p-6 flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Panel Izquierdo: Calendario -->
+        <section class="lg:col-span-2 bg-white p-4 sm:p-6 rounded-lg shadow-xl">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800">Calendario</h2>
+            <div class="flex justify-between items-center mb-4">
+                <button id="prev-month" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"><i class="fas fa-chevron-left"></i></button>
+                <h3 id="current-month-year" class="text-xl font-bold text-gray-700"></h3>
+                <button id="next-month" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"><i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div class="calendar-grid text-center font-bold text-gray-600 mb-2">
+                <div>Dom</div>
+                <div>Lun</div>
+                <div>Mar</div>
+                <div>Mié</div>
+                <div>Jue</div>
+                <div>Vie</div>
+                <div>Sáb</div>
+            </div>
+            <div id="calendar" class="calendar-grid">
+                <!-- Los días del calendario se renderizarán aquí -->
+            </div>
+            <div class="mt-6 flex flex-col sm:flex-row justify-center gap-4 flex-wrap">
+                <button id="export-weekly-pdf" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Semana (PDF)</button>
+                <button id="export-monthly-pdf" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Mes (PDF)</button>
+            </div>
+        </section>
+
+        <!-- Panel Derecho: Gestión de Lectores y Formulario de Horario -->
+        <section class="lg:col-span-1 bg-white p-4 sm:p-6 rounded-lg shadow-xl mt-6 lg:mt-0">
+            <!-- Funciones de Guardar/Cargar JSON -->
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800">Guardar/Cargar Datos Localmente</h2>
+            <div class="flex flex-col gap-3 mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+                <button id="save-json-btn" class="btn-primary w-full flex items-center justify-center">
+                    <i class="fas fa-file-export mr-2"></i> Guardar Datos (JSON)
+                </button>
+                <input type="file" id="load-json-input" accept=".json" class="hidden">
+                <button id="load-json-btn" class="btn-secondary w-full flex items-center justify-center">
+                    <i class="fas fa-file-import mr-2"></i> Cargar Datos (JSON)
+                </button>
+            </div>
+
+            <!-- Gestión de Lectores -->
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-t pt-6 mt-6">Gestión de Lectores</h2>
+            <form id="reader-form" class="mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+                <input type="hidden" id="reader-id">
+                <div class="mb-4">
+                    <label for="reader-name" class="block text-gray-700 text-sm font-bold mb-2">Nombre del Lector:</label>
+                    <input type="text" id="reader-name" class="form-input" placeholder="Ej: Juan Pérez" required>
+                </div>
+                <button type="submit" class="btn-primary w-full"><i class="fas fa-user-plus mr-2"></i> Añadir Lector</button>
+                <button type="button" id="cancel-edit-reader" class="btn-secondary w-full mt-2 hidden"><i class="fas fa-times mr-2"></i> Cancelar Edición</button>
+            </form>
+
+            <h3 class="text-xl font-semibold mb-3 text-gray-700">Lista de Lectores</h3>
+            <ul id="readers-list" class="space-y-2 mb-8">
+                <!-- La lista de lectores se renderizará aquí -->
+            </ul>
+
+            <!-- Gestión de Tipos de Asignación -->
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-t pt-6 mt-6">Gestión de Tipos de Asignación</h2>
+            <form id="assignment-type-form" class="mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+                <input type="hidden" id="assignment-type-id">
+                <div class="mb-4">
+                    <label for="assignment-type-name" class="block text-gray-700 text-sm font-bold mb-2">Nombre del Tipo:</label>
+                    <input type="text" id="assignment-type-name" class="form-input" placeholder="Ej: Tercera Lectura" required>
+                </div>
+                <button type="submit" class="btn-primary w-full"><i class="fas fa-plus-circle mr-2"></i> Añadir Tipo</button>
+                <button type="button" id="cancel-edit-assignment-type" class="btn-secondary w-full mt-2 hidden"><i class="fas fa-times mr-2"></i> Cancelar Edición</button>
+            </form>
+
+            <h3 class="text-xl font-semibold mb-3 text-gray-700">Lista de Tipos de Asignación</h3>
+            <ul id="assignment-types-list" class="space-y-2">
+                <!-- La lista de tipos de asignación se renderizará aquí -->
+            </ul>
+        </section>
+    </main>
+
+    <!-- Modals -->
+    <!-- Schedule Form Modal -->
+    <div id="schedule-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl transform transition-all duration-300 scale-95 opacity-0" id="schedule-modal-content">
+            <h2 id="schedule-modal-title" class="text-2xl font-semibold mb-4 text-gray-800"></h2>
+            <input type="hidden" id="schedule-date-input">
+            <div class="mb-4">
+                <label for="celebration-input" class="block text-gray-700 text-sm font-bold mb-2">Celebración Especial del Día (Opcional):</label>
+                <input type="text" id="celebration-input" class="form-input" placeholder="Ej: Solemnidad de Pentecostés">
+            </div>
+
+            <div id="masses-container" class="space-y-6 mb-6">
+                <!-- Individual mass blocks will be added here -->
+            </div>
+
+            <button type="button" id="add-mass-btn" class="btn-secondary w-full mb-6"><i class="fas fa-plus mr-2"></i> Añadir Horario de Misa</button>
+
+            <div class="flex flex-col sm:flex-row justify-end gap-3 mt-6">
+                <button type="button" id="close-schedule-modal" class="btn-secondary w-full sm:w-auto"><i class="fas fa-times mr-2"></i> Cerrar</button>
+                <button type="button" id="save-schedule-btn" class="btn-primary w-full sm:w-auto"><i class="fas fa-save mr-2"></i> Guardar Horario</button>
+                <button type="button" id="export-daily-pdf-modal" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Día (PDF)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reader Schedule Modal -->
+    <div id="reader-schedule-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl transform transition-all duration-300 scale-95 opacity-0" id="reader-schedule-modal-content">
+            <h2 id="reader-schedule-modal-title" class="text-2xl font-semibold mb-4 text-gray-800"></h2>
+            <div id="reader-schedule-details" class="space-y-4">
+                <!-- Reader's schedule details will be populated here -->
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button" id="close-reader-schedule-modal" class="btn-secondary"><i class="fas fa-times mr-2"></i> Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Week Selection Modal -->
+    <div id="week-selection-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm transform transition-all duration-300 scale-95 opacity-0" id="week-selection-modal-content">
+            <h3 class="text-xl font-semibold mb-4 text-gray-800">Seleccionar Semana para Exportar</h3>
+            <div class="mb-4">
+                <label for="week-selection-date-input" class="block text-gray-700 text-sm font-bold mb-2">Selecciona una fecha dentro de la semana:</label>
+                <input type="date" id="week-selection-date-input" class="form-input">
+            </div>
+            <div class="flex flex-col sm:flex-row justify-end gap-3 mt-6">
+                <button type="button" id="close-week-selection-modal" class="btn-secondary w-full sm:w-auto"><i class="fas fa-times mr-2"></i> Cancelar</button>
+                <button type="button" id="export-selected-week-btn" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Semana</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Message Modal -->
+    <div id="message-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center transform transition-all duration-300 scale-95 opacity-0" id="message-modal-content">
+            <h3 id="message-modal-title" class="text-xl font-semibold mb-3 text-gray-800"></h3>
+            <p id="message-modal-text" class="text-gray-600 mb-5"></p>
+            <button type="button" id="close-message-modal" class="btn-primary w-full"><i class="fas fa-check mr-2"></i> Aceptar</button>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center transform transition-all duration-300 scale-95 opacity-0" id="confirmation-modal-content">
+            <h3 id="confirmation-modal-title" class="text-xl font-semibold mb-3 text-gray-800"></h3>
+            <p id="confirmation-modal-text" class="text-gray-600 mb-5"></p>
+            <div class="flex flex-col sm:flex-row justify-center gap-3">
+                <button type="button" id="confirm-cancel-btn" class="btn-secondary w-full sm:w-auto"><i class="fas fa-times mr-2"></i> Cancelar</button>
+                <button type="button" id="confirm-ok-btn" class="btn-danger w-full sm:w-auto"><i class="fas fa-check mr-2"></i> Aceptar</button>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Global variables
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
+        let readers = [];
+        let assignmentTypes = [];
+        let schedules = {}; // Key-value pair: { "YYYY-MM-DD": { celebration: "", masses: [{time, celebration, assignments}, ...] } }
+
+        // DOM References
+        const calendarEl = document.getElementById('calendar');
+        const currentMonthYearEl = document.getElementById('current-month-year');
+        const prevMonthBtn = document.getElementById('prev-month');
+        const nextMonthBtn = document.getElementById('next-month');
+        const readerForm = document.getElementById('reader-form');
+        const readerNameInput = document.getElementById('reader-name');
+        const readerIdInput = document.getElementById('reader-id');
+        const readersListEl = document.getElementById('readers-list');
+        const cancelEditReaderBtn = document.getElementById('cancel-edit-reader');
+        const assignmentTypeForm = document.getElementById('assignment-type-form');
+        const assignmentTypeNameInput = document.getElementById('assignment-type-name');
+        const assignmentTypeIdInput = document.getElementById('assignment-type-id');
+        const assignmentTypesListEl = document.getElementById('assignment-types-list');
+        const cancelEditAssignmentTypeBtn = document.getElementById('cancel-edit-assignment-type');
+        const scheduleModal = document.getElementById('schedule-modal');
+        const scheduleModalContent = document.getElementById('schedule-modal-content');
+        const scheduleModalTitle = document.getElementById('schedule-modal-title');
+        const closeScheduleModalBtn = document.getElementById('close-schedule-modal');
+        const saveScheduleBtn = document.getElementById('save-schedule-btn'); // Changed from scheduleForm submit
+        const scheduleDateInput = document.getElementById('schedule-date-input');
+        const celebrationInput = document.getElementById('celebration-input'); // This is for the overall day's celebration
+        const massesContainer = document.getElementById('masses-container'); // New container for multiple masses
+        const addMassBtn = document.getElementById('add-mass-btn'); // New button to add a mass block
+        const exportWeeklyPdfBtn = document.getElementById('export-weekly-pdf');
+        const exportMonthlyPdfBtn = document.getElementById('export-monthly-pdf');
+        const exportDailyPdfModalBtn = document.getElementById('export-daily-pdf-modal');
+        const weekSelectionModal = document.getElementById('week-selection-modal');
+        const weekSelectionModalContent = document.getElementById('week-selection-modal-content');
+        const weekSelectionDateInput = document.getElementById('week-selection-date-input');
+        const closeWeekSelectionModalBtn = document.getElementById('close-week-selection-modal');
+        const exportSelectedWeekBtn = document.getElementById('export-selected-week-btn');
+        const messageModal = document.getElementById('message-modal');
+        const messageModalContent = document.getElementById('message-modal-content');
+        const messageModalTitle = document.getElementById('message-modal-title');
+        const messageModalText = document.getElementById('message-modal-text');
+        const closeMessageModalBtn = document.getElementById('close-message-modal');
+        const confirmationModal = document.getElementById('confirmation-modal');
+        const confirmationModalContent = document.getElementById('confirmation-modal-content');
+        const confirmationModalTitle = document.getElementById('confirmation-modal-title');
+        const confirmationModalText = document.getElementById('confirmation-modal-text');
+        const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+        const confirmOkBtn = document.getElementById('confirm-ok-btn');
+        const saveJsonBtn = document.getElementById('save-json-btn');
+        const loadJsonBtn = document.getElementById('load-json-btn');
+        const loadJsonInput = document.getElementById('load-json-input');
+
+        // New DOM references for reader schedule modal
+        const readerScheduleModal = document.getElementById('reader-schedule-modal');
+        const readerScheduleModalContent = document.getElementById('reader-schedule-modal-content');
+        const readerScheduleModalTitle = document.getElementById('reader-schedule-modal-title');
+        const readerScheduleDetails = document.getElementById('reader-schedule-details');
+        const closeReaderScheduleModalBtn = document.getElementById('close-reader-schedule-modal');
+
+
+        // --- Utility Functions ---
+        // Custom confirmation modal
+        const showConfirmationModal = (title, message) => {
+            return new Promise(resolve => {
+                confirmationModalTitle.textContent = title;
+                confirmationModalText.textContent = message;
+                confirmationModal.classList.remove('hidden');
+                setTimeout(() => {
+                    confirmationModalContent.classList.remove('opacity-0', 'scale-95');
+                    confirmationModalContent.classList.add('opacity-100', 'scale-100');
+                }, 10);
+
+                const handleConfirm = () => {
+                    hideConfirmationModal();
+                    resolve(true);
+                    // Remove listeners to prevent multiple calls
+                    confirmOkBtn.removeEventListener('click', handleConfirm);
+                    confirmCancelBtn.removeEventListener('click', handleCancel);
+                };
+
+                const handleCancel = () => {
+                    hideConfirmationModal();
+                    resolve(false);
+                    // Remove listeners to prevent multiple calls
+                    confirmOkBtn.removeEventListener('click', handleConfirm);
+                    confirmCancelBtn.removeEventListener('click', handleCancel);
+                };
+
+                confirmOkBtn.addEventListener('click', handleConfirm);
+                confirmCancelBtn.addEventListener('click', handleCancel);
+            });
+        };
+
+        const hideConfirmationModal = () => {
+            confirmationModalContent.classList.remove('opacity-100', 'scale-100');
+            confirmationModalContent.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => confirmationModal.classList.add('hidden'), 300);
+        };
+
+        // --- Modal Functions ---
+        const showMessageModal = (title, message) => {
+            messageModalTitle.textContent = title;
+            messageModalText.textContent = message;
+            messageModal.classList.remove('hidden');
+            setTimeout(() => {
+                messageModalContent.classList.remove('opacity-0', 'scale-95');
+                messageModalContent.classList.add('opacity-100', 'scale-100');
+            }, 10);
+        };
+
+        const hideMessageModal = () => {
+            messageModalContent.classList.remove('opacity-100', 'scale-100');
+            messageModalContent.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => messageModal.classList.add('hidden'), 300);
+        };
+
+        const showScheduleModal = () => {
+            scheduleModal.classList.remove('hidden');
+            exportDailyPdfModalBtn.classList.remove('hidden'); // Ensure it's visible when modal opens
+            setTimeout(() => {
+                scheduleModalContent.classList.remove('opacity-0', 'scale-95');
+                scheduleModalContent.classList.add('opacity-100', 'scale-100');
+            }, 10);
+        };
+
+        const hideScheduleModal = () => {
+            scheduleModalContent.classList.remove('opacity-100', 'scale-100');
+            scheduleModalContent.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => {
+                scheduleModal.classList.add('hidden');
+                // scheduleForm.reset(); // Don't reset the whole form, manage elements individually
+                massesContainer.innerHTML = ''; // Clear all mass blocks
+                celebrationInput.value = ''; // Clear daily celebration
+                exportDailyPdfModalBtn.classList.add('hidden'); // Hide the button when modal closes
+            }, 300);
+        };
+
+        const showReaderScheduleModal = (readerName) => {
+            readerScheduleModalTitle.textContent = `Horario de ${readerName}`;
+            readerScheduleModal.classList.remove('hidden');
+            setTimeout(() => {
+                readerScheduleModalContent.classList.remove('opacity-0', 'scale-95');
+                readerScheduleModalContent.classList.add('opacity-100', 'scale-100');
+            }, 10);
+        };
+
+        const hideReaderScheduleModal = () => {
+            readerScheduleModalContent.classList.remove('opacity-100', 'scale-100');
+            readerScheduleModalContent.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => {
+                readerScheduleModal.classList.add('hidden');
+                readerScheduleDetails.innerHTML = ''; // Clear content when hiding
+            }, 300);
+        };
+
+        const showWeekSelectionModal = () => {
+            weekSelectionModal.classList.remove('hidden');
+            // Set default date to today for convenience
+            weekSelectionDateInput.valueAsDate = new Date();
+            setTimeout(() => {
+                weekSelectionModalContent.classList.remove('opacity-0', 'scale-95');
+                weekSelectionModalContent.classList.add('opacity-100', 'scale-100');
+            }, 10);
+        };
+
+        const hideWeekSelectionModal = () => {
+            weekSelectionModalContent.classList.remove('opacity-100', 'scale-100');
+            weekSelectionModalContent.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => weekSelectionModal.classList.add('hidden'), 300);
+        };
+
+        // --- Local JSON Save/Load Functions ---
+        const saveDataAsJson = () => {
+            try {
+                const data = {
+                    readers: readers,
+                    assignmentTypes: assignmentTypes,
+                    schedules: schedules
+                };
+                const jsonString = JSON.stringify(data, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'cronograma_lectores_data.json';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showMessageModal("Éxito", "Datos guardados como 'cronograma_lectores_data.json'.");
+            } catch (error) {
+                console.error("Error saving data as JSON:", error);
+                showMessageModal("Error al Guardar", "No se pudo guardar los datos como archivo JSON.");
+            }
+        };
+
+        const loadDataFromJson = (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const loadedData = JSON.parse(e.target.result);
+                    if (loadedData.readers && loadedData.assignmentTypes && loadedData.schedules) {
+                        readers = loadedData.readers;
+                        assignmentTypes = loadedData.assignmentTypes;
+                        schedules = loadedData.schedules;
+                        renderAllData();
+                        showMessageModal("Éxito", "Datos cargados correctamente desde el archivo JSON.");
+                        // Save loaded data to local storage to persist across reloads
+                        localStorage.setItem('readers', JSON.stringify(readers));
+                        localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes));
+                        localStorage.setItem('schedules', JSON.stringify(schedules));
+                    } else {
+                        showMessageModal("Error de Carga", "El archivo JSON no tiene el formato esperado.");
+                    }
+                } catch (error) {
+                    console.error("Error loading data from JSON:", error);
+                    showMessageModal("Error de Carga", "No se pudo leer o parsear el archivo JSON. Asegúrate de que sea un archivo JSON válido.");
+                }
+            };
+            reader.readAsText(file);
+        };
+
+
+        // --- Calendar Functions ---
+        const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+
+        const renderCalendar = () => {
+            calendarEl.innerHTML = '';
+            const monthName = new Date(currentYear, currentMonth).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+            currentMonthYearEl.textContent = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+            const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+            const today = new Date();
+            const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                calendarEl.appendChild(document.createElement('div'));
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayEl = document.createElement('div');
+                const dateString = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+                dayEl.classList.add('calendar-day');
+                if (dateString === todayString) dayEl.classList.add('current-day');
+                if (schedules[dateString] && schedules[dateString].masses && schedules[dateString].masses.length > 0) dayEl.classList.add('has-schedule');
+
+                dayEl.dataset.date = dateString;
+
+                let scheduleHTML = '';
+                if (schedules[dateString] && schedules[dateString].masses) {
+                    const dailyCelebration = schedules[dateString].celebration || '';
+                    if (dailyCelebration) {
+                        scheduleHTML += `<p class="font-semibold text-blue-700 text-xs truncate">${dailyCelebration}</p>`;
+                    }
+
+                    // Sort masses by time for consistent display
+                    const sortedMasses = [...schedules[dateString].masses].sort((a, b) => a.time.localeCompare(b.time));
+
+                    sortedMasses.forEach(mass => {
+                        scheduleHTML += `<p class="font-medium text-blue-600 text-xs mt-1">${mass.time}${mass.celebration ? ` (${mass.celebration.substring(0,10)}...)` : ''}</p>`;
+                        const assignmentsArray = Array.isArray(mass.assignments) ? mass.assignments : [];
+                        assignmentsArray.forEach(a => {
+                            const reader = readers.find(r => r.id === a.readerId);
+                            const type = assignmentTypes.find(t => t.id === a.typeId);
+                            scheduleHTML += `<p class="text-xs truncate ml-2"><strong>${type ? type.name.substring(0,3)+'.' : 'N/A'}:</strong> ${reader ? reader.name : 'N/A'}</p>`;
+                        });
+                    });
+                }
+
+                dayEl.innerHTML = `
+                    <span class="font-bold text-lg text-gray-800 self-start">${day}</span>
+                    <div class="text-sm text-gray-600 mt-1 space-y-0.5 flex-grow overflow-hidden">
+                        ${scheduleHTML}
+                    </div>
+                `;
+                dayEl.addEventListener('click', () => openScheduleForm(dateString));
+                calendarEl.appendChild(dayEl);
+            }
+        };
+
+        // --- Reader Management ---
+        const renderReaders = () => {
+            readersListEl.innerHTML = '';
+            if (readers.length === 0) {
+                readersListEl.innerHTML = '<li class="text-gray-500 italic">No hay lectores registrados.</li>';
+                return;
+            }
+            readers.forEach(reader => {
+                const li = document.createElement('li');
+                li.classList.add('flex', 'items-center', 'justify-between', 'bg-gray-100', 'p-3', 'rounded-md', 'shadow-sm', 'cursor-pointer'); // Added cursor-pointer
+                li.innerHTML = `
+                    <span class="text-gray-800 font-medium reader-name-display" data-id="${reader.id}">${reader.name}</span>
+                    <div>
+                        <button class="text-blue-600 hover:text-blue-800 mr-2 edit-reader-btn" data-id="${reader.id}"><i class="fas fa-edit"></i></button>
+                        <button class="text-red-600 hover:text-red-800 delete-reader-btn" data-id="${reader.id}"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                readersListEl.appendChild(li);
+            });
+        };
+
+        const saveReader = (id, name) => {
+            if (id) {
+                const reader = readers.find(r => r.id === id);
+                if (reader) reader.name = name;
+            } else {
+                readers.push({ id: Date.now().toString(), name });
+            }
+            localStorage.setItem('readers', JSON.stringify(readers)); // Save to local storage
+            renderReaders();
+            renderCalendar();
+            showMessageModal("Éxito", `Lector ${id ? 'actualizado' : 'añadido'} correctamente.`);
+        };
+
+        const deleteReader = async (id) => {
+            const confirmDelete = await showConfirmationModal(
+                'Confirmar Eliminación',
+                '¿Estás seguro de que quieres eliminar este lector? También se eliminará de todos los horarios programados.'
+            );
+            if (!confirmDelete) return;
+
+            readers = readers.filter(r => r.id !== id);
+            // Update schedules to remove reader from assignments
+            Object.keys(schedules).forEach(date => {
+                if(schedules[date] && schedules[date].masses) {
+                    schedules[date].masses.forEach(mass => {
+                        if(mass.assignments) {
+                            mass.assignments = mass.assignments.filter(a => a.readerId !== id);
+                        }
+                    });
+                }
+            });
+
+            localStorage.setItem('readers', JSON.stringify(readers)); // Save to local storage
+            localStorage.setItem('schedules', JSON.stringify(schedules)); // Save schedules changes
+            renderReaders();
+            renderCalendar();
+            showMessageModal("Éxito", "Lector eliminado.");
+        };
+
+        // --- Assignment Type Management ---
+        const renderAssignmentTypes = () => {
+            assignmentTypesListEl.innerHTML = '';
+            if (assignmentTypes.length === 0) {
+                assignmentTypesListEl.innerHTML = '<li class="text-gray-500 italic">No hay tipos de asignación.</li>';
+                return;
+            }
+            assignmentTypes.forEach(type => {
+                const li = document.createElement('li');
+                li.classList.add('flex', 'items-center', 'justify-between', 'bg-gray-100', 'p-3', 'rounded-md', 'shadow-sm');
+                li.innerHTML = `
+                    <span class="text-gray-800 font-medium">${type.name}</span>
+                    <div>
+                        <button class="text-blue-600 hover:text-blue-800 mr-2 edit-assignment-type-btn" data-id="${type.id}"><i class="fas fa-edit"></i></button>
+                        <button class="text-red-600 hover:text-red-800 delete-assignment-type-btn" data-id="${type.id}"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                assignmentTypesListEl.appendChild(li);
+            });
+        };
+
+        const saveAssignmentType = (id, name) => {
+            if (id) {
+                const type = assignmentTypes.find(t => t.id === id);
+                if (type) type.name = name;
+            } else {
+                assignmentTypes.push({ id: Date.now().toString(), name });
+            }
+            localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes)); // Save to local storage
+            renderAssignmentTypes();
+            renderCalendar();
+            showMessageModal("Éxito", `Tipo de asignación ${id ? 'actualizado' : 'añadido'} correctamente.`);
+        };
+
+        const deleteAssignmentType = async (id) => {
+            const confirmDelete = await showConfirmationModal(
+                'Confirmar Eliminación',
+                '¿Estás seguro de que quieres eliminar este tipo de asignación? También se eliminará de todos los horarios programados.'
+            );
+            if (!confirmDelete) return;
+
+            assignmentTypes = assignmentTypes.filter(t => t.id !== id);
+            // Update schedules to remove type from assignments
+            Object.keys(schedules).forEach(date => {
+                if(schedules[date] && schedules[date].masses) {
+                    schedules[date].masses.forEach(mass => {
+                        if(mass.assignments) {
+                            mass.assignments = mass.assignments.filter(a => a.typeId !== id);
+                        }
+                    });
+                }
+            });
+
+            localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes)); // Save to local storage
+            localStorage.setItem('schedules', JSON.stringify(schedules)); // Save schedules changes
+            renderAssignmentTypes();
+            renderCalendar();
+            showMessageModal("Éxito", "Tipo de asignación eliminado.");
+        };
+
+        // --- Schedule Form Functions ---
+        const openScheduleForm = (dateString) => {
+            scheduleModalTitle.textContent = `Horario para el ${new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`;
+            scheduleDateInput.value = dateString;
+            massesContainer.innerHTML = ''; // Clear previous mass blocks
+
+            const existingDailySchedule = schedules[dateString];
+            celebrationInput.value = existingDailySchedule ? (existingDailySchedule.celebration || '') : '';
+
+            if (existingDailySchedule && existingDailySchedule.masses && existingDailySchedule.masses.length > 0) {
+                // Sort masses by time before rendering
+                const sortedMasses = [...existingDailySchedule.masses].sort((a, b) => a.time.localeCompare(b.time));
+                sortedMasses.forEach(mass => {
+                    addMassBlock(mass);
+                });
+            } else {
+                // For a new schedule, add one default mass block
+                addMassBlock();
+            }
+            showScheduleModal();
+        };
+
+        const addMassBlock = (massData = {}) => {
+            const massBlockDiv = document.createElement('div');
+            massBlockDiv.classList.add('mass-block', 'relative');
+            const massId = massData.id || Date.now().toString(); // Assign a unique ID to each mass block
+            massBlockDiv.dataset.massId = massId;
+
+            massBlockDiv.innerHTML = `
+                <button type="button" class="btn-danger p-1 rounded-full absolute top-2 right-2 text-sm delete-mass-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+                <h4 class="text-lg font-semibold mb-3 text-gray-700">Horario de Misa</h4>
+                <div class="mb-4">
+                    <label for="mass-time-${massId}" class="block text-gray-700 text-sm font-bold mb-2">Hora de la Misa:</label>
+                    <input type="time" id="mass-time-${massId}" class="form-input mass-time-input" value="${massData.time || '08:00'}" required>
+                </div>
+                <div class="mb-4">
+                    <label for="mass-celebration-${massId}" class="block text-gray-700 text-sm font-bold mb-2">Celebración de la Misa (Opcional):</label>
+                    <input type="text" id="mass-celebration-${massId}" class="form-input mass-celebration-input" placeholder="Ej: Misa Dominical" value="${massData.celebration || ''}">
+                </div>
+                <h5 class="text-md font-semibold mb-2 text-gray-700">Asignaciones para esta Misa:</h5>
+                <div class="assignments-per-mass-container space-y-3">
+                    <!-- Assignment rows for this mass will be added here -->
+                </div>
+                <button type="button" class="btn-secondary mt-3 add-assignment-row-btn"><i class="fas fa-plus mr-2"></i> Añadir Asignación</button>
+            `;
+            massesContainer.appendChild(massBlockDiv);
+
+            const assignmentsPerMassContainer = massBlockDiv.querySelector('.assignments-per-mass-container');
+            const addAssignmentRowButton = massBlockDiv.querySelector('.add-assignment-row-btn');
+            const deleteMassButton = massBlockDiv.querySelector('.delete-mass-btn');
+
+            // Add event listeners for this specific mass block
+            addAssignmentRowButton.addEventListener('click', () => addAssignmentRow(assignmentsPerMassContainer));
+            deleteMassButton.addEventListener('click', async () => {
+                const confirm = await showConfirmationModal("Confirmar Eliminación", "¿Estás seguro de que quieres eliminar esta misa?");
+                if (confirm) {
+                    massBlockDiv.remove();
+                }
+            });
+
+            // Populate existing assignments if massData is provided
+            if (massData.assignments && massData.assignments.length > 0) {
+                massData.assignments.forEach(assignment => {
+                    addAssignmentRow(assignmentsPerMassContainer, assignment.typeId, assignment.readerId, assignment.description);
+                });
+            } else {
+                // If no assignments, add default ones based on assignmentTypes
+                if (assignmentTypes.length > 0) {
+                    assignmentTypes.forEach(type => {
+                        addAssignmentRow(assignmentsPerMassContainer, type.id, '', '');
+                    });
+                } else {
+                    addAssignmentRow(assignmentsPerMassContainer); // Fallback to one empty row
+                }
+            }
+        };
+
+
+        const addAssignmentRow = (containerEl, typeId = '', readerId = '', description = '') => {
+            const row = document.createElement('div');
+            row.classList.add('flex', 'flex-col', 'sm:flex-row', 'gap-2', 'items-center', 'assignment-row');
+
+            const typeOptions = assignmentTypes.map(type => `<option value="${type.id}" ${typeId === type.id ? 'selected' : ''}>${type.name}</option>`).join('');
+            const readerOptions = `<option value="">Seleccione Lector</option>` + readers.map(reader => `<option value="${reader.id}" ${readerId === reader.id ? 'selected' : ''}>${reader.name}</option>`).join('');
+
+            row.innerHTML = `
+                <select class="form-select w-full sm:w-1/4 type-select">
+                    <option value="">Seleccione Tipo</option>
+                    ${typeOptions}
+                </select>
+                <select class="form-select w-full sm:w-1/3 reader-select">
+                    ${readerOptions}
+                </select>
+                <input type="text" class="form-input w-full sm:flex-grow description-input" placeholder="Descripción (Ej: Salmo 23)" value="${description}">
+                <button type="button" class="btn-danger p-2 rounded-full delete-assignment-row"><i class="fas fa-trash"></i></button>
+            `;
+            containerEl.appendChild(row); // Append to the specified container
+            row.querySelector('.delete-assignment-row').addEventListener('click', () => row.remove());
+        };
+
+        const saveSchedule = () => {
+            const dateString = scheduleDateInput.value;
+            const dailyCelebration = celebrationInput.value.trim();
+            const masses = [];
+
+            document.querySelectorAll('#masses-container .mass-block').forEach(massBlockEl => {
+                const time = massBlockEl.querySelector('.mass-time-input').value;
+                const celebration = massBlockEl.querySelector('.mass-celebration-input').value.trim();
+                const assignments = [];
+
+                massBlockEl.querySelectorAll('.assignment-row').forEach(row => {
+                    const typeId = row.querySelector('.type-select').value;
+                    const readerId = row.querySelector('.reader-select').value;
+                    const description = row.querySelector('.description-input').value.trim();
+                    if (typeId && readerId) { // Only add if both type and reader are selected
+                        assignments.push({ typeId, readerId, description });
+                    }
+                });
+
+                if (time) { // Only add mass if it has a time specified
+                    masses.push({ time, celebration, assignments });
+                }
+            });
+
+            if (masses.length === 0 && !dailyCelebration) {
+                delete schedules[dateString]; // If no masses and no daily celebration, delete the whole day's schedule
+            } else {
+                // Sort masses by time before saving
+                masses.sort((a, b) => a.time.localeCompare(b.time));
+                schedules[dateString] = { celebration: dailyCelebration, masses: masses };
+            }
+
+            localStorage.setItem('schedules', JSON.stringify(schedules)); // Save to local storage
+            renderCalendar();
+            hideScheduleModal(); // Hide the modal on success
+            showMessageModal("Éxito", "Horario guardado correctamente.");
+        };
+
+        // --- PDF Export Functions ---
+        // New function for exporting daily PDF from the modal
+        const exportDailyPdfFromModal = () => {
+            const dateString = scheduleDateInput.value; // Get the date from the modal's hidden input
+
+            if (!dateString) {
+                showMessageModal("Error", "No se ha seleccionado ninguna fecha en el modal.");
+                return;
+            }
+
+            const dailyScheduleData = schedules[dateString];
+
+            if (!dailyScheduleData || (!dailyScheduleData.celebration && (!dailyScheduleData.masses || dailyScheduleData.masses.length === 0))) {
+                showMessageModal("Advertencia", `No hay datos para exportar para el día ${new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES')}.`);
+                return;
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+
+            const title = `Cronograma - ${new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`;
+            doc.setFontSize(18);
+            doc.text(title, doc.internal.pageSize.getWidth() / 2, 40, { align: 'center' });
+
+            let y = 80;
+            if (dailyScheduleData.celebration) {
+                doc.setFontSize(14);
+                doc.text(`Celebración del Día: ${dailyScheduleData.celebration}`, 40, y);
+                y += 30;
+            }
+
+            // Sort masses by time for PDF output
+            const sortedMasses = dailyScheduleData.masses ? [...dailyScheduleData.masses].sort((a, b) => a.time.localeCompare(b.time)) : [];
+
+            if (sortedMasses.length > 0) {
+                sortedMasses.forEach(mass => {
+                    doc.setFontSize(12);
+                    doc.text(`Misa: ${mass.time}${mass.celebration ? ` (${mass.celebration})` : ''}`, 40, y);
+                    y += 20;
+
+                    const tableColumn = ["Tipo", "Lector", "Descripción"];
+                    const assignmentsArray = Array.isArray(mass.assignments) ? mass.assignments : [];
+                    const tableRows = assignmentsArray.map(a => {
+                        const type = assignmentTypes.find(t => t.id === a.typeId)?.name || 'N/A';
+                        const reader = readers.find(r => r.id === a.readerId)?.name || 'N/A';
+                        return [type, reader, a.description];
+                    });
+
+                    if (tableRows.length > 0) {
+                        doc.autoTable({
+                            head: [tableColumn],
+                            body: tableRows,
+                            startY: y,
+                            headStyles: { fillColor: [59, 130, 246] },
+                            margin: { left: 40 },
+                            didDrawPage: function (data) {
+                                y = data.cursor.y + 10; // Update Y position after table
+                            }
+                        });
+                        y = doc.autoTable.previous.finalY + 10; // Ensure next text starts after table
+                    } else {
+                        doc.setFontSize(10);
+                        doc.text("No hay asignaciones para esta misa.", 50, y);
+                        y += 20;
+                    }
+                    y += 10; // Extra space between masses
+                });
+            } else {
+                 doc.setFontSize(12);
+                 doc.text("No hay misas programadas para este día.", 40, y);
+            }
+
+            doc.save(`Cronograma_Diario_${dateString}.pdf`);
+        };
+
+
+        const exportWeeklyPdf = (dateStringForExport) => {
+            const selectedDate = new Date(dateStringForExport + 'T00:00:00');
+
+            const firstDayOfWeek = new Date(selectedDate);
+            firstDayOfWeek.setDate(selectedDate.getDate() - selectedDate.getDay()); // Adjust to Sunday
+            const lastDayOfWeek = new Date(firstDayOfWeek);
+            lastDayOfWeek.setDate(lastDayOfWeek.getDate() + 6); // Adjust to Saturday
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+
+            const title = `Cronograma Semanal: ${firstDayOfWeek.toLocaleDateString('es-ES')} - ${lastDayOfWeek.toLocaleDateString('es-ES')}`;
+            doc.setFontSize(18);
+            doc.text(title, doc.internal.pageSize.getWidth() / 2, 40, { align: 'center' });
+
+            let yOffset = 60; // Starting Y position for content after title
+
+            let hasAnyDataInWeek = false;
+
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(firstDayOfWeek);
+                date.setDate(date.getDate() + i);
+                const dateString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                const dailySchedule = schedules[dateString];
+
+                let dayTitle = `${date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric'})}`;
+                let dayHasContent = false;
+
+                if (dailySchedule && (dailySchedule.celebration || (dailySchedule.masses && dailySchedule.masses.length > 0))) {
+                    hasAnyDataInWeek = true;
+                    dayHasContent = true;
+
+                    // Add a new page if content exceeds current page height
+                    if (yOffset > doc.internal.pageSize.height - 50) { // 50pt margin from bottom
+                        doc.addPage();
+                        yOffset = 40; // Reset Y for new page
+                    }
+
+                    doc.setFontSize(14);
+                    doc.setFont(undefined, 'bold');
+                    doc.text(dayTitle, 40, yOffset);
+                    doc.setFont(undefined, 'normal');
+                    yOffset += 18;
+
+                    if (dailySchedule.celebration) {
+                        doc.setFontSize(12);
+                        doc.text(`Celebración del Día: ${dailySchedule.celebration}`, 50, yOffset);
+                        yOffset += 15;
+                    }
+
+                    const sortedMasses = dailySchedule.masses ? [...dailySchedule.masses].sort((a, b) => a.time.localeCompare(b.time)) : [];
+
+                    sortedMasses.forEach(mass => {
+                        doc.setFontSize(11);
+                        doc.setFont(undefined, 'bold');
+                        doc.text(`Misa: ${mass.time}${mass.celebration ? ` (${mass.celebration})` : ''}`, 60, yOffset);
+                        doc.setFont(undefined, 'normal');
+                        yOffset += 14;
+
+                        const tableColumn = ["Tipo", "Lector", "Descripción"];
+                        const assignmentsArray = Array.isArray(mass.assignments) ? mass.assignments : [];
+                        const tableRows = assignmentsArray.map(a => {
+                            const type = assignmentTypes.find(t => t.id === a.typeId)?.name || 'N/A';
+                            const reader = readers.find(r => r.id === a.readerId)?.name || 'N/A';
+                            return [type, reader, a.description];
+                        });
+
+                        if (tableRows.length > 0) {
+                            doc.autoTable({
+                                head: [tableColumn],
+                                body: tableRows,
+                                startY: yOffset,
+                                headStyles: { fillColor: [59, 130, 246], fontSize: 9 },
+                                styles: { fontSize: 8 },
+                                margin: { left: 70, right: 40 },
+                                didDrawPage: function (data) {
+                                    yOffset = data.cursor.y + 10;
+                                }
+                            });
+                            yOffset = doc.autoTable.previous.finalY + 8; // Adjust spacing after table
+                        } else {
+                            doc.setFontSize(9);
+                            doc.text("No hay asignaciones para esta misa.", 80, yOffset);
+                            yOffset += 12;
+                        }
+                    });
+                    yOffset += 10; // Space after each day's content
+                }
+
+                if (!dayHasContent) {
+                    // Add a new page if content exceeds current page height (for "no data" days too)
+                    if (yOffset > doc.internal.pageSize.height - 50) {
+                        doc.addPage();
+                        yOffset = 40;
+                    }
+                    doc.setFontSize(14);
+                    doc.setFont(undefined, 'bold');
+                    doc.text(dayTitle, 40, yOffset);
+                    doc.setFont(undefined, 'italic');
+                    doc.setFontSize(10);
+                    doc.text("No hay datos para este día.", 50, yOffset + 15);
+                    yOffset += 40; // Space for the "no data" message
+                }
+            }
+
+            if (!hasAnyDataInWeek) {
+                showMessageModal("Advertencia", "No hay datos significativos para exportar en la semana seleccionada.");
+            }
+
+            doc.save(`Cronograma_Semanal_${firstDayOfWeek.toISOString().slice(0, 10)}.pdf`);
+        };
+
+
+        const exportMonthlyPdf = () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+
+            const title = `Cronograma Mensual - ${new Date(currentYear, currentMonth).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`;
+            doc.setFontSize(18);
+            doc.text(title, doc.internal.pageSize.getWidth() / 2, 40, { align: 'center' });
+
+            let yOffset = 60; // Starting Y position for content after title
+            let hasAnyDataInMonth = false;
+
+            const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(currentYear, currentMonth, day);
+                const dateString = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dailySchedule = schedules[dateString];
+
+                let dayTitle = `${date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric'})}`;
+                let dayHasContent = false;
+
+                if (dailySchedule && (dailySchedule.celebration || (dailySchedule.masses && dailySchedule.masses.length > 0))) {
+                    hasAnyDataInMonth = true;
+                    dayHasContent = true;
+
+                    // Add a new page if content exceeds current page height
+                    if (yOffset > doc.internal.pageSize.height - 50) {
+                        doc.addPage();
+                        yOffset = 40;
+                    }
+
+                    doc.setFontSize(14);
+                    doc.setFont(undefined, 'bold');
+                    doc.text(dayTitle, 40, yOffset);
+                    doc.setFont(undefined, 'normal');
+                    yOffset += 18;
+
+                    if (dailySchedule.celebration) {
+                        doc.setFontSize(12);
+                        doc.text(`Celebración del Día: ${dailySchedule.celebration}`, 50, yOffset);
+                        yOffset += 15;
+                    }
+
+                    const sortedMasses = dailySchedule.masses ? [...dailySchedule.masses].sort((a, b) => a.time.localeCompare(b.time)) : [];
+
+                    sortedMasses.forEach(mass => {
+                        doc.setFontSize(11);
+                        doc.setFont(undefined, 'bold');
+                        doc.text(`Misa: ${mass.time}${mass.celebration ? ` (${mass.celebration})` : ''}`, 60, yOffset);
+                        doc.setFont(undefined, 'normal');
+                        yOffset += 14;
+
+                        const tableColumn = ["Tipo", "Lector", "Descripción"];
+                        const assignmentsArray = Array.isArray(mass.assignments) ? mass.assignments : [];
+                        const tableRows = assignmentsArray.map(a => {
+                            const type = assignmentTypes.find(t => t.id === a.typeId)?.name || 'N/A';
+                            const reader = readers.find(r => r.id === a.readerId)?.name || 'N/A';
+                            return [type, reader, a.description];
+                        });
+
+                        if (tableRows.length > 0) {
+                            doc.autoTable({
+                                head: [tableColumn],
+                                body: tableRows,
+                                startY: yOffset,
+                                headStyles: { fillColor: [59, 130, 246], fontSize: 9 },
+                                styles: { fontSize: 8 },
+                                margin: { left: 70, right: 40 },
+                                didDrawPage: function (data) {
+                                    yOffset = data.cursor.y + 10;
+                                }
+                            });
+                            yOffset = doc.autoTable.previous.finalY + 8; // Adjust spacing after table
+                        } else {
+                            doc.setFontSize(9);
+                            doc.text("No hay asignaciones para esta misa.", 80, yOffset);
+                            yOffset += 12;
+                        }
+                    });
+                    yOffset += 10; // Space after each day's content
+                }
+
+                if (!dayHasContent) {
+                    // Add a new page if content exceeds current page height (for "no data" days too)
+                    if (yOffset > doc.internal.pageSize.height - 50) {
+                        doc.addPage();
+                        yOffset = 40;
+                    }
+                    doc.setFontSize(14);
+                    doc.setFont(undefined, 'bold');
+                    doc.text(dayTitle, 40, yOffset);
+                    doc.setFont(undefined, 'italic');
+                    doc.setFontSize(10);
+                    doc.text("No hay datos para este día.", 50, yOffset + 15);
+                    yOffset += 40; // Space for the "no data" message
+                }
+            }
+
+            if (!hasAnyDataInMonth) {
+                showMessageModal("Advertencia", "No hay datos significativos para exportar en este mes.");
+            }
+
+            doc.save(`Cronograma_Mensual_${currentYear}-${String(currentMonth + 1).padStart(2, '0')}.pdf`);
+        };
+
+        // --- Render All Data ---
+        const renderAllData = () => {
+            renderReaders();
+            renderAssignmentTypes();
+            renderCalendar();
+        };
+
+        // --- Reader Schedule View ---
+        const viewReaderSchedule = (readerId, readerName) => {
+            readerScheduleDetails.innerHTML = ''; // Clear previous content
+            let hasSchedule = false;
+
+            // Iterate through all schedules (days)
+            Object.keys(schedules).sort().forEach(dateString => {
+                const dailySchedule = schedules[dateString];
+                if (dailySchedule && dailySchedule.masses && dailySchedule.masses.length > 0) {
+                    let dayHasReaderAssignment = false;
+                    const dayDetails = document.createElement('div');
+                    dayDetails.classList.add('border-b', 'pb-3', 'mb-3');
+                    dayDetails.innerHTML = `<h4 class="text-lg font-semibold text-gray-700">${new Date(dateString + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h4>`;
+                    if (dailySchedule.celebration) {
+                        dayDetails.innerHTML += `<p class="text-sm italic text-gray-600">Celebración: ${dailySchedule.celebration}</p>`;
+                    }
+                    
+                    const massList = document.createElement('ul');
+                    massList.classList.add('list-disc', 'pl-5', 'mt-2');
+
+                    const sortedMasses = [...dailySchedule.masses].sort((a, b) => a.time.localeCompare(b.time));
+
+                    sortedMasses.forEach(mass => {
+                        const readerAssignmentsInMass = mass.assignments.filter(a => a.readerId === readerId);
+                        if (readerAssignmentsInMass.length > 0) {
+                            hasSchedule = true;
+                            dayHasReaderAssignment = true;
+                            
+                            const massItem = document.createElement('li');
+                            massItem.classList.add('mb-1');
+                            massItem.innerHTML = `<strong class="text-blue-700">${mass.time}</strong>${mass.celebration ? ` (${mass.celebration})` : ''}:`;
+                            
+                            const assignmentsList = document.createElement('ul');
+                            assignmentsList.classList.add('list-disc', 'list-inside', 'ml-4');
+                            readerAssignmentsInMass.forEach(assignment => {
+                                const type = assignmentTypes.find(t => t.id === assignment.typeId)?.name || 'N/A';
+                                assignmentsList.innerHTML += `<li>${type}${assignment.description ? `: ${assignment.description}` : ''}</li>`;
+                            });
+                            massItem.appendChild(assignmentsList);
+                            massList.appendChild(massItem);
+                        }
+                    });
+                    if (dayHasReaderAssignment) {
+                        dayDetails.appendChild(massList);
+                        readerScheduleDetails.appendChild(dayDetails);
+                    }
+                }
+            });
+
+            if (!hasSchedule) {
+                readerScheduleDetails.innerHTML = `<p class="text-center text-gray-500 mt-4">Este lector no tiene asignaciones programadas.</p>`;
+            }
+
+            showReaderScheduleModal(readerName);
+        };
+
+
+        // --- Initializer and Event Listeners ---
+        const init = () => {
+            // Load initial data from local storage if any, or set defaults
+            const storedReaders = localStorage.getItem('readers');
+            if (storedReaders) {
+                readers = JSON.parse(storedReaders);
+            }
+
+            const storedAssignmentTypes = localStorage.getItem('assignmentTypes');
+            if (storedAssignmentTypes) {
+                assignmentTypes = JSON.parse(storedAssignmentTypes);
+            } else {
+                // Default assignment types if none are stored
+                assignmentTypes = [
+                    { id: 'default-1', name: 'Monición' },
+                    { id: 'default-2', name: 'Primera Lectura' },
+                    { id: 'default-3', name: 'Salmo' },
+                    { id: 'default-4', name: 'Segunda Lectura' },
+                    { id: 'default-5', name: 'Oración de los Fieles' }
+                ];
+            }
+
+            const storedSchedules = localStorage.getItem('schedules');
+            if (storedSchedules) {
+                schedules = JSON.parse(storedSchedules);
+            }
+
+            // Save initial defaults/loaded data to local storage to make sure it's consistent
+            localStorage.setItem('readers', JSON.stringify(readers));
+            localStorage.setItem('assignmentTypes', JSON.stringify(assignmentTypes));
+            localStorage.setItem('schedules', JSON.stringify(schedules));
+
+            renderAllData(); // Initial render of all components
+
+            closeMessageModalBtn.addEventListener('click', hideMessageModal);
+            closeScheduleModalBtn.addEventListener('click', hideScheduleModal);
+            closeWeekSelectionModalBtn.addEventListener('click', hideWeekSelectionModal);
+            closeReaderScheduleModalBtn.addEventListener('click', hideReaderScheduleModal); // New listener for reader schedule modal
+
+            prevMonthBtn.addEventListener('click', () => {
+                currentMonth--;
+                if (currentMonth < 0) {
+                    currentMonth = 11;
+                    currentYear--;
+                }
+                renderCalendar();
+            });
+
+            nextMonthBtn.addEventListener('click', () => {
+                currentMonth++;
+                if (currentMonth > 11) {
+                    currentMonth = 0;
+                    currentYear++;
+                }
+                renderCalendar();
+            });
+
+            readerForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const readerName = readerNameInput.value.trim();
+                const readerId = readerIdInput.value.trim();
+                if (readerName) {
+                    saveReader(readerId, readerName);
+                    readerForm.reset();
+                    readerIdInput.value = '';
+                    cancelEditReaderBtn.classList.add('hidden');
+                    readerForm.querySelector('button[type="submit"]').innerHTML = '<i class="fas fa-user-plus mr-2"></i> Añadir Lector';
+                }
+            });
+
+            readersListEl.addEventListener('click', async (e) => {
+                // Handle click on reader name to view schedule
+                if (e.target.classList.contains('reader-name-display')) {
+                    const readerId = e.target.dataset.id;
+                    const readerName = e.target.textContent;
+                    viewReaderSchedule(readerId, readerName);
+                    return; // Prevent other click handlers on the same element
+                }
+
+                if(e.target.closest('.edit-reader-btn')) {
+                    const btn = e.target.closest('.edit-reader-btn');
+                    const reader = readers.find(r => r.id === btn.dataset.id);
+                    if(reader) {
+                        readerIdInput.value = reader.id;
+                        readerNameInput.value = reader.name;
+                        readerForm.querySelector('button[type="submit"]').innerHTML = '<i class="fas fa-save mr-2"></i> Actualizar Lector';
+                        cancelEditReaderBtn.classList.remove('hidden');
+                        readerNameInput.focus();
+                    }
+                }
+                if(e.target.closest('.delete-reader-btn')) {
+                    const btn = e.target.closest('.delete-reader-btn');
+                    await deleteReader(btn.dataset.id);
+                }
+            });
+
+            cancelEditReaderBtn.addEventListener('click', () => {
+                readerForm.reset();
+                readerIdInput.value = '';
+                readerForm.querySelector('button[type="submit"]').innerHTML = '<i class="fas fa-user-plus mr-2"></i> Añadir Lector';
+                cancelEditReaderBtn.classList.add('hidden');
+            });
+
+            assignmentTypeForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const typeName = assignmentTypeNameInput.value.trim();
+                const typeId = assignmentTypeIdInput.value.trim();
+                if (typeName) {
+                    saveAssignmentType(typeId, typeName);
+                    assignmentTypeForm.reset();
+                    assignmentTypeIdInput.value = '';
+                    cancelEditAssignmentTypeBtn.classList.add('hidden');
+                    assignmentTypeForm.querySelector('button[type="submit"]').innerHTML = '<i class="fas fa-plus-circle mr-2"></i> Añadir Tipo';
+                }
+            });
+
+            assignmentTypesListEl.addEventListener('click', async (e) => {
+                if(e.target.closest('.edit-assignment-type-btn')) {
+                    const btn = e.target.closest('.edit-assignment-type-btn');
+                    const type = assignmentTypes.find(t => t.id === btn.dataset.id);
+                    if(type) {
+                        assignmentTypeIdInput.value = type.id;
+                        assignmentTypeNameInput.value = type.name;
+                        assignmentTypeForm.querySelector('button[type="submit"]').innerHTML = '<i class="fas fa-save mr-2"></i> Actualizar Tipo';
+                        cancelEditAssignmentTypeBtn.classList.remove('hidden');
+                        assignmentTypeNameInput.focus();
+                    }
+                }
+                if(e.target.closest('.delete-assignment-type-btn')) {
+                    const btn = e.target.closest('.delete-assignment-type-btn');
+                    await deleteAssignmentType(btn.dataset.id);
+                }
+            });
+
+            cancelEditAssignmentTypeBtn.addEventListener('click', () => {
+                assignmentTypeForm.reset();
+                assignmentTypeIdInput.value = '';
+                assignmentTypeForm.querySelector('button[type="submit"]').innerHTML = '<i class="fas fa-plus-circle mr-2"></i> Añadir Tipo';
+                cancelEditAssignmentTypeBtn.classList.add('hidden');
+            });
+
+            // Re-wired schedule form save to a button click
+            saveScheduleBtn.addEventListener('click', saveSchedule);
+            addMassBtn.addEventListener('click', () => addMassBlock());
+
+
+            exportDailyPdfModalBtn.addEventListener('click', exportDailyPdfFromModal); // Listener for the modal button
+
+            exportWeeklyPdfBtn.addEventListener('click', showWeekSelectionModal); // Open the new week selection modal
+            exportSelectedWeekBtn.addEventListener('click', () => {
+                const selectedDateString = weekSelectionDateInput.value;
+                if (selectedDateString) {
+                    exportWeeklyPdf(selectedDateString);
+                    hideWeekSelectionModal();
+                } else {
+                    showMessageModal("Error", "Por favor, selecciona una fecha para exportar la semana.");
+                }
+            });
+
+
+            exportMonthlyPdfBtn.addEventListener('click', exportMonthlyPdf);
+
+            // Event listeners for JSON operations
+            saveJsonBtn.addEventListener('click', saveDataAsJson);
+            loadJsonBtn.addEventListener('click', () => loadJsonInput.click()); // Trigger hidden file input
+            loadJsonInput.addEventListener('change', loadDataFromJson);
+        };
+
+        init();
+    });
+    </script>
+</body>
+</html>
