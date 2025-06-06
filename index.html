@@ -138,88 +138,108 @@
     </style>
 </head>
 <body class="flex flex-col min-h-screen">
-    <header class="bg-gradient-blue text-white p-4 shadow-lg">
-        <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-3xl font-bold">Cronograma de Lectores</h1>
+
+    <!-- Password Protection Overlay -->
+    <div id="password-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-[100]">
+        <div class="bg-white p-8 rounded-lg shadow-2xl text-center max-w-sm w-full mx-4">
+            <h2 class="text-2xl font-bold mb-6 text-gray-800">Acceso Restringido</h2>
+            <p class="text-gray-600 mb-4">Introduce la contraseña para continuar:</p>
+            <input type="password" id="password-input" class="form-input text-center mb-4" placeholder="Contraseña">
+            <button id="access-button" class="btn-primary w-full"><i class="fas fa-lock-open mr-2"></i> Acceder</button>
+            <p id="password-error" class="text-red-500 text-sm mt-3 hidden">Contraseña incorrecta. Inténtalo de nuevo.</p>
         </div>
-    </header>
+    </div>
 
-    <main class="container mx-auto p-4 sm:p-6 flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Panel Izquierdo: Calendario -->
-        <section class="lg:col-span-2 bg-white p-4 sm:p-6 rounded-lg shadow-xl">
-            <h2 class="text-2xl font-semibold mb-4 text-gray-800">Calendario</h2>
-            <div class="flex justify-between items-center mb-4">
-                <button id="prev-month" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"><i class="fas fa-chevron-left"></i></button>
-                <h3 id="current-month-year" class="text-xl font-bold text-gray-700"></h3>
-                <button id="next-month" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"><i class="fas fa-chevron-right"></i></button>
+    <div id="app-content" class="hidden flex flex-col min-h-screen">
+        <header class="bg-gradient-blue text-white p-4 shadow-lg">
+            <div class="container mx-auto flex justify-between items-center">
+                <h1 class="text-3xl font-bold">Cronograma de Lectores</h1>
             </div>
-            <div class="calendar-grid text-center font-bold text-gray-600 mb-2">
-                <div>Dom</div>
-                <div>Lun</div>
-                <div>Mar</div>
-                <div>Mié</div>
-                <div>Jue</div>
-                <div>Vie</div>
-                <div>Sáb</div>
-            </div>
-            <div id="calendar" class="calendar-grid">
-                <!-- Los días del calendario se renderizarán aquí -->
-            </div>
-            <div class="mt-6 flex flex-col sm:flex-row justify-center gap-4 flex-wrap">
-                <button id="export-weekly-pdf" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Semana (PDF)</button>
-                <button id="export-monthly-pdf" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Mes (PDF)</button>
-            </div>
-        </section>
+        </header>
 
-        <!-- Panel Derecho: Gestión de Lectores y Formulario de Horario -->
-        <section class="lg:col-span-1 bg-white p-4 sm:p-6 rounded-lg shadow-xl mt-6 lg:mt-0">
-            <!-- Funciones de Guardar/Cargar JSON -->
-            <h2 class="text-2xl font-semibold mb-4 text-gray-800">Guardar/Cargar Datos Localmente</h2>
-            <div class="flex flex-col gap-3 mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
-                <button id="save-json-btn" class="btn-primary w-full flex items-center justify-center">
-                    <i class="fas fa-file-export mr-2"></i> Guardar Datos (JSON)
-                </button>
-                <input type="file" id="load-json-input" accept=".json" class="hidden">
-                <button id="load-json-btn" class="btn-secondary w-full flex items-center justify-center">
-                    <i class="fas fa-file-import mr-2"></i> Cargar Datos (JSON)
-                </button>
-            </div>
-
-            <!-- Gestión de Lectores -->
-            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-t pt-6 mt-6">Gestión de Lectores</h2>
-            <form id="reader-form" class="mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
-                <input type="hidden" id="reader-id">
-                <div class="mb-4">
-                    <label for="reader-name" class="block text-gray-700 text-sm font-bold mb-2">Nombre del Lector:</label>
-                    <input type="text" id="reader-name" class="form-input" placeholder="Ej: Juan Pérez" required>
+        <main class="container mx-auto p-4 sm:p-6 flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Panel Izquierdo: Calendario -->
+            <section class="lg:col-span-2 bg-white p-4 sm:p-6 rounded-lg shadow-xl">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Calendario</h2>
+                <div class="flex justify-between items-center mb-4">
+                    <button id="prev-month" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"><i class="fas fa-chevron-left"></i></button>
+                    <h3 id="current-month-year" class="text-xl font-bold text-gray-700"></h3>
+                    <button id="next-month" class="bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"><i class="fas fa-chevron-right"></i></button>
                 </div>
-                <button type="submit" class="btn-primary w-full"><i class="fas fa-user-plus mr-2"></i> Añadir Lector</button>
-                <button type="button" id="cancel-edit-reader" class="btn-secondary w-full mt-2 hidden"><i class="fas fa-times mr-2"></i> Cancelar Edición</button>
-            </form>
-
-            <h3 class="text-xl font-semibold mb-3 text-gray-700">Lista de Lectores</h3>
-            <ul id="readers-list" class="space-y-2 mb-8">
-                <!-- La lista de lectores se renderizará aquí -->
-            </ul>
-
-            <!-- Gestión de Tipos de Asignación -->
-            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-t pt-6 mt-6">Gestión de Tipos de Asignación</h2>
-            <form id="assignment-type-form" class="mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
-                <input type="hidden" id="assignment-type-id">
-                <div class="mb-4">
-                    <label for="assignment-type-name" class="block text-gray-700 text-sm font-bold mb-2">Nombre del Tipo:</label>
-                    <input type="text" id="assignment-type-name" class="form-input" placeholder="Ej: Tercera Lectura" required>
+                <div class="calendar-grid text-center font-bold text-gray-600 mb-2">
+                    <div>Dom</div>
+                    <div>Lun</div>
+                    <div>Mar</div>
+                    <div>Mié</div>
+                    <div>Jue</div>
+                    <div>Vie</div>
+                    <div>Sáb</div>
                 </div>
-                <button type="submit" class="btn-primary w-full"><i class="fas fa-plus-circle mr-2"></i> Añadir Tipo</button>
-                <button type="button" id="cancel-edit-assignment-type" class="btn-secondary w-full mt-2 hidden"><i class="fas fa-times mr-2"></i> Cancelar Edición</button>
-            </form>
+                <div id="calendar" class="calendar-grid">
+                    <!-- Los días del calendario se renderizarán aquí -->
+                </div>
+                <div class="mt-6 flex flex-col sm:flex-row justify-center gap-4 flex-wrap">
+                    <button id="export-weekly-pdf" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Semana (PDF)</button>
+                    <button id="export-monthly-pdf" class="btn-primary w-full sm:w-auto"><i class="fas fa-file-pdf mr-2"></i> Exportar Mes (PDF)</button>
+                </div>
+            </section>
 
-            <h3 class="text-xl font-semibold mb-3 text-gray-700">Lista de Tipos de Asignación</h3>
-            <ul id="assignment-types-list" class="space-y-2">
-                <!-- La lista de tipos de asignación se renderizará aquí -->
-            </ul>
-        </section>
-    </main>
+            <!-- Panel Derecho: Gestión de Lectores y Formulario de Horario -->
+            <section class="lg:col-span-1 bg-white p-4 sm:p-6 rounded-lg shadow-xl mt-6 lg:mt-0">
+                <!-- Funciones de Guardar/Cargar JSON -->
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Guardar/Cargar Datos Localmente</h2>
+                <div class="flex flex-col gap-3 mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+                    <button id="save-json-btn" class="btn-primary w-full flex items-center justify-center">
+                        <i class="fas fa-file-export mr-2"></i> Guardar Datos (JSON)
+                    </button>
+                    <input type="file" id="load-json-input" accept=".json" class="hidden">
+                    <button id="load-json-btn" class="btn-secondary w-full flex items-center justify-center">
+                        <i class="fas fa-file-import mr-2"></i> Cargar Datos (JSON)
+                    </button>
+                </div>
+
+                <!-- Gestión de Lectores -->
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-t pt-6 mt-6">Gestión de Lectores</h2>
+                <form id="reader-form" class="mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+                    <input type="hidden" id="reader-id">
+                    <div class="mb-4">
+                        <label for="reader-name" class="block text-gray-700 text-sm font-bold mb-2">Nombre del Lector:</label>
+                        <input type="text" id="reader-name" class="form-input" placeholder="Ej: Juan Pérez" required>
+                    </div>
+                    <button type="submit" class="btn-primary w-full"><i class="fas fa-user-plus mr-2"></i> Añadir Lector</button>
+                    <button type="button" id="cancel-edit-reader" class="btn-secondary w-full mt-2 hidden"><i class="fas fa-times mr-2"></i> Cancelar Edición</button>
+                </form>
+
+                <h3 class="text-xl font-semibold mb-3 text-gray-700">Lista de Lectores</h3>
+                <ul id="readers-list" class="space-y-2 mb-8">
+                    <!-- La lista de lectores se renderizará aquí -->
+                </ul>
+
+                <!-- Gestión de Tipos de Asignación -->
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-t pt-6 mt-6">Gestión de Tipos de Asignación</h2>
+                <form id="assignment-type-form" class="mb-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+                    <input type="hidden" id="assignment-type-id">
+                    <div class="mb-4">
+                        <label for="assignment-type-name" class="block text-gray-700 text-sm font-bold mb-2">Nombre del Tipo:</label>
+                        <input type="text" id="assignment-type-name" class="form-input" placeholder="Ej: Tercera Lectura" required>
+                    </div>
+                    <button type="submit" class="btn-primary w-full"><i class="fas fa-plus-circle mr-2"></i> Añadir Tipo</button>
+                    <button type="button" id="cancel-edit-assignment-type" class="btn-secondary w-full mt-2 hidden"><i class="fas fa-times mr-2"></i> Cancelar Edición</button>
+                </form>
+
+                <h3 class="text-xl font-semibold mb-3 text-gray-700">Lista de Tipos de Asignación</h3>
+                <ul id="assignment-types-list" class="space-y-2">
+                    <!-- La lista de tipos de asignación se renderizará aquí -->
+                </ul>
+            </section>
+        </main>
+
+        <footer class="bg-gray-800 text-white p-4 mt-6">
+            <div class="container mx-auto text-center text-sm">
+                &copy; 2025 Cronograma de Lectores. Todos los derechos reservados.
+            </div>
+        </footer>
+    </div>
 
     <!-- Modals -->
     <!-- Schedule Form Modal -->
@@ -297,67 +317,51 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // Global variables
-        let currentMonth = new Date().getMonth();
-        let currentYear = new Date().getFullYear();
-        let readers = [];
-        let assignmentTypes = [];
-        let schedules = {}; // Key-value pair: { "YYYY-MM-DD": { celebration: "", masses: [{time, celebration, assignments}, ...] } }
+        // --- Password Protection Logic ---
+        const passwordOverlay = document.getElementById('password-overlay');
+        const passwordInput = document.getElementById('password-input');
+        const accessButton = document.getElementById('access-button');
+        const passwordError = document.getElementById('password-error');
+        const appContent = document.getElementById('app-content');
+        const CORRECT_PASSWORD = "lector2025";
 
-        // DOM References
-        const calendarEl = document.getElementById('calendar');
-        const currentMonthYearEl = document.getElementById('current-month-year');
-        const prevMonthBtn = document.getElementById('prev-month');
-        const nextMonthBtn = document.getElementById('next-month');
-        const readerForm = document.getElementById('reader-form');
-        const readerNameInput = document.getElementById('reader-name');
-        const readerIdInput = document.getElementById('reader-id');
-        const readersListEl = document.getElementById('readers-list');
-        const cancelEditReaderBtn = document.getElementById('cancel-edit-reader');
-        const assignmentTypeForm = document.getElementById('assignment-type-form');
-        const assignmentTypeNameInput = document.getElementById('assignment-type-name');
-        const assignmentTypeIdInput = document.getElementById('assignment-type-id');
-        const assignmentTypesListEl = document.getElementById('assignment-types-list');
-        const cancelEditAssignmentTypeBtn = document.getElementById('cancel-edit-assignment-type');
-        const scheduleModal = document.getElementById('schedule-modal');
-        const scheduleModalContent = document.getElementById('schedule-modal-content');
-        const scheduleModalTitle = document.getElementById('schedule-modal-title');
-        const closeScheduleModalBtn = document.getElementById('close-schedule-modal');
-        const saveScheduleBtn = document.getElementById('save-schedule-btn'); // Changed from scheduleForm submit
-        const scheduleDateInput = document.getElementById('schedule-date-input');
-        const celebrationInput = document.getElementById('celebration-input'); // This is for the overall day's celebration
-        const massesContainer = document.getElementById('masses-container'); // New container for multiple masses
-        const addMassBtn = document.getElementById('add-mass-btn'); // New button to add a mass block
-        const exportWeeklyPdfBtn = document.getElementById('export-weekly-pdf');
-        const exportMonthlyPdfBtn = document.getElementById('export-monthly-pdf');
-        const exportDailyPdfModalBtn = document.getElementById('export-daily-pdf-modal');
-        const weekSelectionModal = document.getElementById('week-selection-modal');
-        const weekSelectionModalContent = document.getElementById('week-selection-modal-content');
-        const weekSelectionDateInput = document.getElementById('week-selection-date-input');
-        const closeWeekSelectionModalBtn = document.getElementById('close-week-selection-modal');
-        const exportSelectedWeekBtn = document.getElementById('export-selected-week-btn');
-        const messageModal = document.getElementById('message-modal');
-        const messageModalContent = document.getElementById('message-modal-content');
-        const messageModalTitle = document.getElementById('message-modal-title');
-        const messageModalText = document.getElementById('message-modal-text');
-        const closeMessageModalBtn = document.getElementById('close-message-modal');
-        const confirmationModal = document.getElementById('confirmation-modal');
-        const confirmationModalContent = document.getElementById('confirmation-modal-content');
-        const confirmationModalTitle = document.getElementById('confirmation-modal-title');
-        const confirmationModalText = document.getElementById('confirmation-modal-text');
-        const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
-        const confirmOkBtn = document.getElementById('confirm-ok-btn');
-        const saveJsonBtn = document.getElementById('save-json-btn');
-        const loadJsonBtn = document.getElementById('load-json-btn');
-        const loadJsonInput = document.getElementById('load-json-input');
+        const checkPassword = () => {
+            if (passwordInput.value === CORRECT_PASSWORD) {
+                passwordOverlay.classList.add('hidden');
+                appContent.classList.remove('hidden');
+                initApp(); // Initialize the main application once password is correct
+            } else {
+                passwordError.classList.remove('hidden');
+                passwordInput.value = ''; // Clear password on error
+                passwordInput.focus();
+            }
+        };
 
-        // New DOM references for reader schedule modal
-        const readerScheduleModal = document.getElementById('reader-schedule-modal');
-        const readerScheduleModalContent = document.getElementById('reader-schedule-modal-content');
-        const readerScheduleModalTitle = document.getElementById('reader-schedule-modal-title');
-        const readerScheduleDetails = document.getElementById('reader-schedule-details');
-        const closeReaderScheduleModalBtn = document.getElementById('close-reader-schedule-modal');
+        accessButton.addEventListener('click', checkPassword);
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                checkPassword();
+            }
+        });
 
+        // Global variables (these will be initialized only after successful login)
+        let currentMonth;
+        let currentYear;
+        let readers;
+        let assignmentTypes;
+        let schedules; // Key-value pair: { "YYYY-MM-DD": { celebration: "", masses: [{time, celebration, assignments}, ...] } }
+
+        // DOM References (these will be assigned within initApp)
+        let calendarEl, currentMonthYearEl, prevMonthBtn, nextMonthBtn, readerForm, readerNameInput, readerIdInput,
+            readersListEl, cancelEditReaderBtn, assignmentTypeForm, assignmentTypeNameInput, assignmentTypeIdInput,
+            assignmentTypesListEl, cancelEditAssignmentTypeBtn, scheduleModal, scheduleModalContent, scheduleModalTitle,
+            closeScheduleModalBtn, saveScheduleBtn, scheduleDateInput, celebrationInput, massesContainer, addMassBtn,
+            exportWeeklyPdfBtn, exportMonthlyPdfBtn, exportDailyPdfModalBtn, weekSelectionModal, weekSelectionModalContent,
+            weekSelectionDateInput, closeWeekSelectionModalBtn, exportSelectedWeekBtn, messageModal, messageModalContent,
+            messageModalTitle, messageModalText, closeMessageModalBtn, confirmationModal, confirmationModalContent,
+            confirmationModalTitle, confirmationModalText, confirmCancelBtn, confirmOkBtn, saveJsonBtn, loadJsonBtn,
+            loadJsonInput, readerScheduleModal, readerScheduleModalContent, readerScheduleModalTitle, readerScheduleDetails,
+            closeReaderScheduleModalBtn;
 
         // --- Utility Functions ---
         // Custom confirmation modal
@@ -479,7 +483,7 @@
                     schedules: schedules
                 };
                 const jsonString = JSON.stringify(data, null, 2);
-                const blob = new Blob([jsonString], { type: 'application/json' });
+                const blob = new Blob([json], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -1203,8 +1207,66 @@
         };
 
 
-        // --- Initializer and Event Listeners ---
-        const init = () => {
+        // --- Main Application Initialization ---
+        const initApp = () => {
+            // Assign DOM References
+            currentMonth = new Date().getMonth();
+            currentYear = new Date().getFullYear();
+            readers = [];
+            assignmentTypes = [];
+            schedules = {};
+
+            calendarEl = document.getElementById('calendar');
+            currentMonthYearEl = document.getElementById('current-month-year');
+            prevMonthBtn = document.getElementById('prev-month');
+            nextMonthBtn = document.getElementById('next-month');
+            readerForm = document.getElementById('reader-form');
+            readerNameInput = document.getElementById('reader-name');
+            readerIdInput = document.getElementById('reader-id');
+            readersListEl = document.getElementById('readers-list');
+            cancelEditReaderBtn = document.getElementById('cancel-edit-reader');
+            assignmentTypeForm = document.getElementById('assignment-type-form');
+            assignmentTypeNameInput = document.getElementById('assignment-type-name');
+            assignmentTypeIdInput = document.getElementById('assignment-type-id');
+            assignmentTypesListEl = document.getElementById('assignment-types-list');
+            cancelEditAssignmentTypeBtn = document.getElementById('cancel-edit-assignment-type');
+            scheduleModal = document.getElementById('schedule-modal');
+            scheduleModalContent = document.getElementById('schedule-modal-content');
+            scheduleModalTitle = document.getElementById('schedule-modal-title');
+            closeScheduleModalBtn = document.getElementById('close-schedule-modal');
+            saveScheduleBtn = document.getElementById('save-schedule-btn');
+            scheduleDateInput = document.getElementById('schedule-date-input');
+            celebrationInput = document.getElementById('celebration-input');
+            massesContainer = document.getElementById('masses-container');
+            addMassBtn = document.getElementById('add-mass-btn');
+            exportWeeklyPdfBtn = document.getElementById('export-weekly-pdf');
+            exportMonthlyPdfBtn = document.getElementById('export-monthly-pdf');
+            exportDailyPdfModalBtn = document.getElementById('export-daily-pdf-modal');
+            weekSelectionModal = document.getElementById('week-selection-modal');
+            weekSelectionModalContent = document.getElementById('week-selection-modal-content');
+            weekSelectionDateInput = document.getElementById('week-selection-date-input');
+            closeWeekSelectionModalBtn = document.getElementById('close-week-selection-modal');
+            exportSelectedWeekBtn = document.getElementById('export-selected-week-btn');
+            messageModal = document.getElementById('message-modal');
+            messageModalContent = document.getElementById('message-modal-content');
+            messageModalTitle = document.getElementById('message-modal-title');
+            messageModalText = document.getElementById('message-modal-text');
+            closeMessageModalBtn = document.getElementById('close-message-modal');
+            confirmationModal = document.getElementById('confirmation-modal');
+            confirmationModalContent = document.getElementById('confirmation-modal-content');
+            confirmationModalTitle = document.getElementById('confirmation-modal-title');
+            confirmationModalText = document.getElementById('confirmation-modal-text');
+            confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+            confirmOkBtn = document.getElementById('confirm-ok-btn');
+            saveJsonBtn = document.getElementById('save-json-btn');
+            loadJsonBtn = document.getElementById('load-json-btn');
+            loadJsonInput = document.getElementById('load-json-input');
+            readerScheduleModal = document.getElementById('reader-schedule-modal');
+            readerScheduleModalContent = document.getElementById('reader-schedule-modal-content');
+            readerScheduleModalTitle = document.getElementById('reader-schedule-modal-title');
+            readerScheduleDetails = document.getElementById('reader-schedule-details');
+            closeReaderScheduleModalBtn = document.getElementById('close-reader-schedule-modal');
+
             // Load initial data from local storage if any, or set defaults
             const storedReaders = localStorage.getItem('readers');
             if (storedReaders) {
@@ -1371,7 +1433,8 @@
             loadJsonInput.addEventListener('change', loadDataFromJson);
         };
 
-        init();
+        // Initial check for password
+        // The app will only fully initialize after the correct password is entered.
     });
     </script>
 </body>
